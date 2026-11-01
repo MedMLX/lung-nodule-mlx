@@ -1,0 +1,118 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lung-nodule-mlx"
+version = "0.2.6"
+description = "Detect lung nodule candidates in 3D chest CT with MONAI RetinaNet and native MLX"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Processing",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+keywords = [
+  "mlx",
+  "apple-silicon",
+  "metal",
+  "medical-imaging",
+  "ct",
+  "lung-nodule",
+  "detection",
+  "retinanet",
+  "monai",
+]
+license = "Apache-2.0 AND BSD-3-Clause"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [
+  { name = "Joseph Sandoval" },
+  { name = "Alfredo Sandoval Jr." },
+]
+dependencies = [
+  "medmlx-core==0.2.6",
+  "mlx==0.32.4; platform_system == 'Darwin' and platform_machine == 'arm64'",
+  "nibabel>=5.3,<6",
+  "numpy>=2.0,<3",
+]
+
+[project.urls]
+Homepage = "https://medmlx.org"
+Documentation = "https://github.com/MedMLX/lung-nodule-mlx/blob/v0.2.6/README.md"
+Repository = "https://github.com/MedMLX/lung-nodule-mlx"
+Issues = "https://github.com/MedMLX/lung-nodule-mlx/issues"
+Weights = "https://huggingface.co/MedMLX/retinanet-lung-nodule-mlx"
+MedMLX = "https://github.com/MedMLX/medmlx"
+
+[project.entry-points."medmlx.models"]
+lung-nodule = "lung_nodule_mlx.medmlx:MODEL"
+
+[project.optional-dependencies]
+dev = [
+  "pyright==1.1.414",
+  "hypothesis>=6.140,<7",
+  "monai==1.6.1",
+  "pytest>=8.4,<10",
+  "ruff>=0.13,<1",
+  "torch>=2.13,<2.14",
+  "torchvision>=0.28,<0.29",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lung_nodule_mlx"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"THIRD_PARTY_NOTICES.md" = "lung_nodule_mlx/NOTICE"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers"
+markers = ["mlx: executes the native MLX graph or MLX safetensors operations"]
+
+[tool.uv]
+constraint-dependencies = ["setuptools>=84.1.0", "filelock>=4.2.1", "Pillow>=13,<14"]
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+required-environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+extend-select = ["TID251", "TID252", "ANN401"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["scripts","src","tests"]
+extraPaths = ["src", "scripts"]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = "error"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typing.Any" = { msg = "Use a precise type at the boundary." }
+"typing_extensions.Any" = { msg = "Use a precise type at the boundary." }
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "src/lung_nodule_mlx",
+  "pyproject.toml",
+  "README.md",
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+]

@@ -1,0 +1,58 @@
+{
+  "schema_version": "lung-nodule.runner-parity.v1",
+  "platform": "darwin-arm64",
+  "reason": "FP32 convolution, normalization and affine rounding differ between MLX Metal and ATen. Bounds round up the measured errors for these seeded inputs.",
+  "observation_source": "Reviewer full-suite Metal verification: 3 failed, 111 passed in 11.69s; saved bundle_detections.json outputs.",
+  "cases": {
+    "runner": {
+      "world_lps": {
+        "dtype": "float64",
+        "shape": [
+          21,
+          6
+        ],
+        "allow_nan": false,
+        "allow_inf": false,
+        "rtol": 0,
+        "atol": 2.7e-05,
+        "observed_max_abs": 2.6702880859375e-05
+      },
+      "world_scores": {
+        "dtype": "float64",
+        "shape": [
+          21
+        ],
+        "allow_nan": false,
+        "allow_inf": false,
+        "rtol": 0,
+        "atol": 3e-07,
+        "observed_max_abs": 2.980232238769531e-07
+      }
+    },
+    "runner_raw": {
+      "world_lps": {
+        "dtype": "float64",
+        "shape": [
+          52,
+          6
+        ],
+        "allow_nan": false,
+        "allow_inf": false,
+        "rtol": 0,
+        "atol": 1.6e-05,
+        "observed_max_abs": 1.52587890625e-05
+      },
+      "world_scores": {
+        "dtype": "float64",
+        "shape": [
+          52
+        ],
+        "allow_nan": false,
+        "allow_inf": false,
+        "rtol": 0,
+        "atol": 6.6e-07,
+        "observed_max_abs": 6.556510925292969e-07
+      }
+    }
+  }
+}
