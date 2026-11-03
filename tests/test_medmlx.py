@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -63,12 +64,17 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, raw: bo
     """Compare seeded runner outputs with recorded upstream detections."""
     source = write_volume(tmp_path)
     output = tmp_path / "out"
+    output.mkdir()
+    victim = tmp_path / "victim.json"
+    victim.write_text("original", encoding="utf-8")
+    (output / f".{os.getpid()}.{medmlx.DETECTIONS}").symlink_to(victim)
     result = medmlx.run(
         image_path=str(source),
         weights_path=str(weights_file),
         output_dir=str(output),
         resample_raw_input=raw,
     )
+    assert victim.read_text(encoding="utf-8") == "original"
     bundle_file = Path(result["outputs"]["bundle_detections"])
     name = "runner_raw" if raw else "runner"
     expected = load(FIXTURES / f"{name}.npz")
@@ -146,7 +152,9 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
     )
 
 
-@pytest.mark.parametrize("problem", ["missing_image", "non_bool_resample", "existing_output"])
+@pytest.mark.parametrize(
+    "problem", ["missing_image", "non_bool_resample", "existing_output", "dangling_output"]
+)
 def test_run_rejects_bad_arguments_before_downloading_weights(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, problem: str
 ) -> None:
@@ -162,11 +170,16 @@ def test_run_rejects_bad_arguments_before_downloading_weights(
         image = tmp_path / "absent.nii"
     elif problem == "non_bool_resample":
         resample = cast(bool, 1)
-    else:
+    elif problem == "existing_output":
         output.mkdir()
         (output / "detections.json").write_bytes(b"earlier output")
+    else:
+        output.mkdir()
+        (output / "detections.json").symlink_to(tmp_path / "absent.json")
     with pytest.raises(InvalidInputError):
         medmlx.run(image_path=image, output_dir=output, resample_raw_input=resample)
+    if problem == "dangling_output":
+        assert (output / "detections.json").is_symlink()
 
 
 @pytest.mark.mlx

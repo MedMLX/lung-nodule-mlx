@@ -10,6 +10,7 @@ import json
 import os
 from collections.abc import Callable
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -237,20 +238,17 @@ def _check_aliases(outputs: tuple[Path, ...], inputs: tuple[Path, ...]) -> None:
 
 
 def _publish(texts: dict[Path, Callable[[], str]]) -> None:
-    """Write each output's text beside its target, then rename all of them into place.
+    """Stage output text in a private directory, then rename it into place.
 
     Earlier outputs stay untouched until every new file is complete, and a failed
     write leaves no partial files behind.
     """
-    partials = {path: path.with_name(f".{os.getpid()}.{path.name}") for path in texts}
-    try:
+    with TemporaryDirectory(prefix=".lung-nodule-mlx-", dir=next(iter(texts)).parent) as staging:
+        partials = {path: Path(staging) / path.name for path in texts}
         for path, text in texts.items():
             partials[path].write_text(text(), encoding="utf-8")
         for path, partial in partials.items():
             os.replace(partial, path)
-    finally:
-        for partial in partials.values():
-            partial.unlink(missing_ok=True)
 
 
 def run(
@@ -328,7 +326,7 @@ def run(
     bundle_file = output / BUNDLE_DETECTIONS
     outputs = (detections_file, bundle_file)
     _check_aliases(outputs, (source,))
-    existing = [path.as_posix() for path in outputs if path.exists()]
+    existing = [path.as_posix() for path in outputs if path.exists() or path.is_symlink()]
     if existing and not overwrite:
         raise InvalidInputError(
             f"Lung detector outputs already exist: {', '.join(existing)}; "
