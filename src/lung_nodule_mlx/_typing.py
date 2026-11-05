@@ -12,14 +12,12 @@ from numpy.typing import ArrayLike, NDArray
 
 if TYPE_CHECKING:
     from mlx.core import array
-    from nibabel.filebasedimages import FileBasedImage
 
 type HostArray = NDArray[np.generic]
 type NativeTree = array | Sequence[NativeTree] | Mapping[str, NativeTree]
 type FloatArray = NDArray[np.float32]
 type DoubleArray = NDArray[np.float64]
 type RealArray = NDArray[np.bool_ | np.integer | np.floating]
-type Shape3D = tuple[int, int, int]
 type Maps = dict[str, list[FloatArray]]
 
 
@@ -54,9 +52,6 @@ class NiftiHeader(Protocol):
     def set_xyzt_units(self, xyz: str | int | None = None, t: str | int | None = None) -> None:
         """Set the spatial and temporal unit codes in the header."""
         ...
-    def __setitem__(self, key: str, value: int) -> None:
-        """Set a named integer-valued NIfTI header field."""
-        ...
 
 
 class NiftiImage(Protocol):
@@ -65,19 +60,6 @@ class NiftiImage(Protocol):
     affine: DoubleArray
     header: NiftiHeader
 
-    def to_bytes(self) -> bytes:
-        """Serialize the NIfTI image to bytes."""
-        ...
-    def get_fdata(self, *, dtype: type[np.float32] = np.float32) -> FloatArray:
-        """Return scaled image data using the requested float dtype."""
-        ...
-
-
-class AffineOperations(Protocol):
-    def apply_affine(self, aff: RealArray, pts: RealArray) -> RealArray:
-        """Apply an affine to a collection of coordinates."""
-        ...
-
 
 class NiftiIo(Protocol):
     def load(self, path: str | Path) -> NiftiImage:
@@ -85,9 +67,6 @@ class NiftiIo(Protocol):
         ...
     def as_closest_canonical(self, image: NiftiImage) -> NiftiImage:
         """Reorient an image to the closest canonical axes."""
-        ...
-    def save(self, image: FileBasedImage, path: str | Path) -> None:
-        """Write an image to the requested path."""
         ...
 
 
@@ -126,15 +105,6 @@ class DetectionRecord(TypedDict):
     classes: dict[str, str]
     source_output: str
     detections: list[Detection]
-
-
-class RunAssets(TypedDict):
-    weights_path: str | Path
-
-
-class RunPaths(RunAssets):
-    image_path: str | Path
-    output_dir: str | Path
 
 
 class RunDetails(TypedDict):
