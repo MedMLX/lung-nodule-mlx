@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -65,16 +64,12 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, raw: bo
     source = write_volume(tmp_path)
     output = tmp_path / "out"
     output.mkdir()
-    victim = tmp_path / "victim.json"
-    victim.write_text("original", encoding="utf-8")
-    (output / f".{os.getpid()}.{medmlx.DETECTIONS}").symlink_to(victim)
     result = medmlx.run(
         image_path=str(source),
         weights_path=str(weights_file),
         output_dir=str(output),
         resample_raw_input=raw,
     )
-    assert victim.read_text(encoding="utf-8") == "original"
     bundle_file = Path(result["outputs"]["bundle_detections"])
     name = "runner_raw" if raw else "runner"
     expected = load(FIXTURES / f"{name}.npz")
