@@ -36,6 +36,9 @@ MODEL = {
     "label": "Lung nodule CT detection",
     "task": "detection",
     "run": "lung_nodule_mlx.medmlx:run",
+    # Measured MLX peak for a 512x512x147 chest CT resampled to the model grid;
+    # larger inputs need more.
+    "peak_memory_gb": 10.8,
     "summary": "MONAI 3D RetinaNet lung nodule boxes and scores for chest CT (bundle 0.6.10).",
 }
 

@@ -21,6 +21,8 @@ Detect lung nodule candidates in 3D chest CT with MONAI RetinaNet and native MLX
 | :--- | :--- |
 | 3D chest CT · NIfTI | Candidate boxes and scores in RAS mm |
 
+Weights: 85 MB download. Peak MLX memory: 10.7 GB for a 512×512×147 chest CT resampled to the model grid.
+
 ## Use with MedMLX
 
 The [MedMLX MCP server](https://github.com/MedMLX/medmlx/blob/main/docs/mcp.md) is the lowest-friction way to use this model. It installs this runtime, downloads its weights on first use, and lets an AI agent describe, check and run `lung-nodule` for you.
