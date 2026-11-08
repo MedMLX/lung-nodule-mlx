@@ -62,7 +62,7 @@ Use `medmlx setup lung-nodule` to download ahead of time. For local weights, pas
 
 | Argument | Meaning |
 | --- | --- |
-| `image_path` | One scalar 3D chest CT in NIfTI, in Hounsfield units, with `mm`, `meter` or `micron` spatial units |
+| `image_path` | One scalar 3D chest CT in NIfTI, in Hounsfield units, with `mm`, `meter` or `micron` spatial units; unspecified units are taken as mm, as MONAI does |
 | `output_dir` | Directory for `detections.json` and `bundle_detections.json`; created if missing |
 | `weights_path` | Optional folder containing `network.safetensors`, or the file itself |
 | `overwrite` | `False` by default; existing outputs are never replaced |
@@ -71,8 +71,8 @@ Use `medmlx setup lung-nodule` to download ahead of time. For local weights, pas
 Keep `resample_raw_input=True` for ordinary CT. The default follows the bundle's
 pre-resampled mode: it reorients to RAS and scales intensities without resampling, and
 rejects images whose voxel axes are more than 1e-3 mm from the bundle grid or sheared,
-the cases where the bundle's resampling would change the image. Spatial units are converted to millimetres; unknown units are
-rejected. DICOM series are not read.
+the cases where the bundle's resampling would change the image. Spatial units are converted to millimetres; unspecified units are
+taken as millimetres, as the bundle's MONAI readers do. DICOM series are not read.
 
 `detections.json` holds `medmlx.detections.v1` candidate boxes (`cccwhd`, class 0
 `nodule`) in RAS millimetres with their scores; `bundle_detections.json` holds the

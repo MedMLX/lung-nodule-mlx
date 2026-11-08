@@ -54,6 +54,9 @@ _WEIGHTS_HINT = (
 )
 
 
+_UNITS_ERROR = "Lung NIfTI spatial units must be mm, meter, micron or unspecified"
+
+
 def prepare_image(
     path: Path,
     *,
@@ -62,7 +65,8 @@ def prepare_image(
     """Load a NIfTI CT and apply the pinned bundle's preprocessing.
 
     The steps are: load, reorient to the closest RAS axes (no resampling), convert
-    spatial units to mm, optionally resample (the bundle's ``Spacingd``), and
+    spatial units to mm (unspecified units are taken as mm, as MONAI's readers
+    do), optionally resample (the bundle's ``Spacingd``), and
     scale HU from [-1024, 300] linearly into [0, 1] with clipping. The bundle
     disables ``Spacingd`` by default (``whether_raw_luna16=false``) without
     checking spacing. The default here requires an image already on the
@@ -78,7 +82,8 @@ def prepare_image(
 
     Raises:
         InvalidInputError: The file is not a readable real, finite scalar 3D NIfTI
-            with an invertible affine, its spatial units are not mm, meter or micron,
+            with an invertible affine, its spatial units are not mm, meter, micron
+            or unspecified,
             ``resample_raw_input`` is not a bool, the image cannot be resampled,
             or, without resampling, it is off the bundle grid.
     """
@@ -110,10 +115,12 @@ def prepare_image(
     try:
         unit = image.header.get_xyzt_units()[0]
     except KeyError as error:
-        raise InvalidInputError("Lung NIfTI spatial units must be mm, meter or micron") from error
-    millimeter_scale = {"mm": 1.0, "meter": 1000.0, "micron": 0.001}
+        raise InvalidInputError(_UNITS_ERROR) from error
+    # MONAI's readers ignore xyzt_units, so the bundle treats every affine as mm;
+    # its own SaveImage (and nibabel's default) writes unknown units.
+    millimeter_scale = {"unknown": 1.0, "mm": 1.0, "meter": 1000.0, "micron": 0.001}
     if unit not in millimeter_scale:
-        raise InvalidInputError("Lung NIfTI spatial units must be mm, meter or micron")
+        raise InvalidInputError(_UNITS_ERROR)
     affine = np.array(image.affine, dtype=np.float64, copy=True)
     affine[:3] *= millimeter_scale[unit]
     from lung_nodule_mlx.spacing import require_bundle_grid, resample_image
@@ -287,8 +294,8 @@ def run(
     Research software; the boxes are model output for review, not a diagnosis.
 
     Args:
-        image_path: Chest CT volume in Hounsfield units (NIfTI), with explicit
-            mm, meter or micron spatial units.
+        image_path: Chest CT volume in Hounsfield units (NIfTI), with mm, meter
+            or micron spatial units; unspecified units are taken as mm.
         weights_path: Optional model folder containing ``network.safetensors``. Omit
             to download ``MedMLX/retinanet-lung-nodule-mlx`` automatically. Explicit native
             ``.safetensors`` checkpoint paths remain accepted. The native weights were

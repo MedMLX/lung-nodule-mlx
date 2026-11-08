@@ -51,6 +51,16 @@ def test_prepare_image_matches_monai(tmp_path: Path, case: str, resample: bool) 
     np.testing.assert_allclose(affine, SAVED[f"affine::{case}"], rtol=0, atol=1e-12)
 
 
+@pytest.mark.parametrize("case", sorted(ON_GRID))
+def test_unspecified_units_are_millimetres_as_in_monai(tmp_path: Path, case: str) -> None:
+    """MONAI's SaveImage writes unknown units; MONAI reads them as mm, so must the default."""
+    path = tmp_path / f"{case}.nii"
+    write_mm_fixture(path, SAVED[f"nifti::{case}"].tobytes(), units="unknown")
+    actual, affine = medmlx.prepare_image(path)
+    np.testing.assert_allclose(actual, SAVED[f"prepared::{case}"], rtol=0, atol=1.2e-7)
+    np.testing.assert_allclose(affine, SAVED[f"affine::{case}"], rtol=0, atol=1e-12)
+
+
 @pytest.mark.parametrize("case", CASES)
 def test_world_boxes_match_monai(case: str) -> None:
     """Compare LPS world boxes, including empty results, with MONAI."""
