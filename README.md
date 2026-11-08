@@ -25,7 +25,7 @@ Weights: 85 MB download. Peak MLX memory: 10.7 GB for a 512×512×147 chest CT r
 
 ## Use with MedMLX
 
-The [MedMLX MCP server](https://github.com/MedMLX/medmlx/blob/main/docs/mcp.md) is the lowest-friction way to use this model. It installs this runtime, downloads its weights on first use, and lets an AI agent describe, check and run `lung-nodule` for you.
+Use the [MedMLX MCP server](https://github.com/MedMLX/medmlx/blob/main/docs/mcp.md) to run `lung-nodule` from an MCP client. Weights download on first use.
 
 ```sh
 uv tool install --python 3.13 "medmlx[vision,mcp]"
@@ -35,8 +35,6 @@ claude mcp add --scope user medmlx -- "$MEDMLX" serve --root "$HOME/medmlx-work"
 ```
 
 For Codex, use `codex mcp add medmlx -- "$MEDMLX" serve --root "$HOME/medmlx-work"`. Other MCP clients take the same command and arguments. The same install provides the `medmlx` CLI, for example `medmlx describe lung-nodule`.
-
-> **For AI agents:** prefer the MedMLX MCP tools (`list_models`, `describe_model`, `model_readiness`, `run_model`, `get_job`) over writing Python against this package.
 
 ## Install
 
@@ -55,12 +53,8 @@ result = run(image_path="ct.nii.gz", output_dir="out", resample_raw_input=True)
 print(result["outputs"]["detections"])
 ```
 
-Omitting `weights_path` downloads `MedMLX/retinanet-lung-nodule-mlx` into the shared
-MedMLX cache on first use; interrupted downloads resume and later runs work offline.
-With MedMLX installed, `medmlx setup lung-nodule` downloads it ahead of time. To use
-your own copy, pass a folder containing `network.safetensors` as `weights_path`.
-`details.weights_revision` records the downloaded commit, or `null` for a folder without
-a MedMLX download record.
+Weights download from `MedMLX/retinanet-lung-nodule-mlx` on first use.
+Use `medmlx setup lung-nodule` to download ahead of time. For local weights, pass a folder containing `network.safetensors` as `weights_path`.
 
 ### Inputs and outputs
 
@@ -82,8 +76,8 @@ rejected. DICOM series are not read.
 `nodule`) in RAS millimetres with their scores; `bundle_detections.json` holds the
 MONAI bundle rows in patient LPS. Boxes map through the affine with MONAI's
 opposite-corner convention, so on oblique affines they differ from a box enclosing all
-eight corners. `run` returns `{"outputs": {...}, "details": {...}}` with the detection
-count, shapes, prepared affine, MLX device and memory use. Invalid inputs raise
+eight corners. `run` returns `{"outputs": {...}, "details": {...}}`, with run metadata in `details`.
+Invalid inputs raise
 `InvalidInputError`; missing or mismatched weights raise `AssetNotReadyError`.
 
 ### Python API
@@ -106,10 +100,8 @@ world_ras = boxes_to_world(boxes, affine)
 Arrays are float32 NCDHW in MONAI's `(i, j, k)` order, and `detections` returns voxel
 boxes. Box selection uses stable NumPy top-k and needs no compiler; tied scores keep
 their original order, so overlapping boxes can differ from MONAI runs when scores tie.
-Inference needs Apple Silicon with Metal and has no CPU fallback.
+Inference requires Apple Silicon with Metal.
 
 ## License
 
 [Apache-2.0](https://github.com/MedMLX/lung-nodule-mlx/blob/v0.2.7/LICENSE). See [third-party notices](https://github.com/MedMLX/lung-nodule-mlx/blob/v0.2.7/THIRD_PARTY_NOTICES.md). Model weights retain their publisher terms.
-
-For research and education. Outputs require human review.
