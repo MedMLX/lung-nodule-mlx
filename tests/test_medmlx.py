@@ -33,14 +33,6 @@ def write_volume(directory: Path, case: str = "oblique") -> Path:
     return path
 
 
-@pytest.mark.parametrize("case", [str(case) for case in INPUTS["cases"]])
-def test_prepare_image_matches_upstream(tmp_path: Path, case: str) -> None:
-    """Compare pre-resampled image values and affine with upstream recordings."""
-    image, affine = medmlx.prepare_image(write_volume(tmp_path, case), resample_raw_input=False)
-    exact(image, cast(FloatArray, INPUTS[f"image::{case}"]), f"{case} image")
-    exact(affine, INPUTS[f"affine::{case}"], f"{case} affine")
-
-
 @pytest.fixture(scope="module")
 def mx() -> ArrayRuntime:
     """Load the Metal runtime for seeded inference tests."""
@@ -58,8 +50,7 @@ def weights_file(tmp_path_factory: pytest.TempPathFactory, mx: ArrayRuntime) -> 
 
 
 @pytest.mark.mlx
-@pytest.mark.parametrize("raw", [False, True], ids=["pre-resampled", "raw"])
-def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, raw: bool) -> None:
+def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path) -> None:
     """Compare seeded runner outputs with recorded upstream detections."""
     source = write_volume(tmp_path)
     output = tmp_path / "out"
@@ -68,10 +59,10 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, raw: bo
         image_path=str(source),
         weights_path=str(weights_file),
         output_dir=str(output),
-        resample_raw_input=raw,
+        resample_raw_input=True,
     )
     bundle_file = Path(result["outputs"]["bundle_detections"])
-    name = "runner_raw" if raw else "runner"
+    name = "runner_raw"
     expected = load(FIXTURES / f"{name}.npz")
     assert int(expected["weight_seed"]) == WEIGHT_SEED
     rows = json.loads(bundle_file.read_text())
@@ -97,14 +88,13 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, raw: bo
 
 
 @pytest.mark.mlx
-@pytest.mark.parametrize("raw", [False, True], ids=["pre-resampled", "raw"])
 def test_runner_maps_prepared_grid_to_upstream_world_boxes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Replay recorded upstream head maps and compare the runner's world boxes."""
     from lung_nodule_mlx import mlx_detector, mlx_model
 
-    expected = load(FIXTURES / ("runner_raw.npz" if raw else "runner.npz"))
+    expected = load(FIXTURES / "runner_raw.npz")
     weights = tmp_path / "network.safetensors"
     weights.write_bytes(b"recorded head maps replace network execution")
 
@@ -118,7 +108,7 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
         """Check prepared voxels and replay the recorded head maps."""
         # Raw Spacing float64 grid differences can produce one FP32 ULP.
         np.testing.assert_allclose(
-            image, cast(FloatArray, expected["image"]), rtol=0, atol=1.2e-7 if raw else 0
+            image, cast(FloatArray, expected["image"]), rtol=0, atol=1.2e-7
         )
         return {
             key: [cast(FloatArray, expected[f"{key}_{level}"]).copy() for level in range(3)]
@@ -128,12 +118,11 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
     monkeypatch.setattr(medmlx, "load_weights", no_weights)
     monkeypatch.setattr(mlx_model, "RetinaNet", no_network)
     monkeypatch.setattr(mlx_detector, "predict_maps", predict)
-    options = {"resample_raw_input": True} if raw else {}  # Exercise the public default.
     result = medmlx.run(
         image_path=str(write_volume(tmp_path)),
         weights_path=str(weights),
         output_dir=str(tmp_path / "out"),
-        **options,
+        resample_raw_input=True,
     )
     rows = json.loads(Path(result["outputs"]["bundle_detections"]).read_text())
     exact(np.asarray(rows[0]["label"], dtype=np.int64), expected["labels"], "runner labels")
@@ -196,5 +185,6 @@ def test_run_rejects_missing_and_mismatched_weights(
                 image_path=source,
                 weights_path=tmp_path / f"{label}.safetensors",
                 output_dir=tmp_path / "out",
+                resample_raw_input=True,
             )
     assert not (tmp_path / "out").exists()

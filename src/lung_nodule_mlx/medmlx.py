@@ -64,10 +64,12 @@ def prepare_image(
     The steps are: load, reorient to the closest RAS axes (no resampling), convert
     spatial units to mm, optionally resample (the bundle's ``Spacingd``), and
     scale HU from [-1024, 300] linearly into [0, 1] with clipping. The bundle
-    disables ``Spacingd`` by default (``whether_raw_luna16=false``), so the
-    default here expects an image already on the bundle's 0.703125 x 0.703125 x
-    1.25 mm grid and does not check its spacing. ``resample_raw_input=True``
-    enables the resampling, as the bundle's ``whether_raw_luna16=true`` does.
+    disables ``Spacingd`` by default (``whether_raw_luna16=false``) without
+    checking spacing. The default here requires an image already on the
+    bundle's 0.703125 x 0.703125 x 1.25 mm grid, meaning one ``Spacingd`` would
+    leave unchanged (each axis within 1e-3 mm, no shear), and rejects any other.
+    ``resample_raw_input=True`` enables the resampling, as the bundle's
+    ``whether_raw_luna16=true`` does.
 
     Returns:
         Contiguous float32 ``(1, 1, X, Y, Z)`` voxels, with the spatial axes in
@@ -77,7 +79,8 @@ def prepare_image(
     Raises:
         InvalidInputError: The file is not a readable real, finite scalar 3D NIfTI
             with an invertible affine, its spatial units are not mm, meter or micron,
-            ``resample_raw_input`` is not a bool, or the image cannot be resampled.
+            ``resample_raw_input`` is not a bool, the image cannot be resampled,
+            or, without resampling, it is off the bundle grid.
     """
 
     import nibabel as nib
@@ -113,10 +116,12 @@ def prepare_image(
         raise InvalidInputError("Lung NIfTI spatial units must be mm, meter or micron")
     affine = np.array(image.affine, dtype=np.float64, copy=True)
     affine[:3] *= millimeter_scale[unit]
-    if resample_raw_input:
-        from lung_nodule_mlx.spacing import resample_image
+    from lung_nodule_mlx.spacing import require_bundle_grid, resample_image
 
+    if resample_raw_input:
         data, affine = resample_image(data, affine)
+    else:
+        require_bundle_grid(data.shape, affine)
     data = np.clip((data - np.float32(-1024)) / np.float32(1324), 0, 1)
     return np.ascontiguousarray(data[None, None]), affine
 
@@ -264,9 +269,10 @@ def run(
 ) -> RunResult:
     """Detect lung nodule candidates in one chest CT volume.
 
-    The default reorients to RAS and expects images already on the bundle's
-    (0.703125, 0.703125, 1.25) mm grid; the bundle's own ``Spacingd`` is disabled
-    by default, and so is resampling here. Set ``resample_raw_input=True`` for
+    The default reorients to RAS and requires images already on the bundle's
+    (0.703125, 0.703125, 1.25) mm grid (each axis within 1e-3 mm, no shear),
+    rejecting others; the bundle's own ``Spacingd`` is disabled by default, and
+    so is resampling here. Set ``resample_raw_input=True`` for
     original CT images, mirroring the bundle's ``whether_raw_luna16=true`` mode.
     Spacing uses trilinear interpolation, border padding, align_corners=False,
     float64 computation and float32 output; rotation is retained and shear
@@ -294,7 +300,7 @@ def run(
             replace earlier ones only after the whole run succeeds. Alias detection is
             a preflight check, not protection against concurrent path changes.
         resample_raw_input: Resample original CT images to the bundle grid. False
-            expects inputs already on that grid and does not check their spacing.
+            requires inputs already on that grid and rejects others.
 
     Returns:
         ``outputs`` maps ``detections`` to ``detections.json``, a
@@ -307,7 +313,8 @@ def run(
 
     Raises:
         InvalidInputError: The input is missing, not a finite scalar 3D image
-            with mm, meter or micron units, ``overwrite`` or ``resample_raw_input``
+            with mm, meter or micron units, off the bundle grid without
+            ``resample_raw_input``, ``overwrite`` or ``resample_raw_input``
             is not a bool, ``output_dir`` is not a directory, outputs exist and
             ``overwrite`` is false, or an output aliases an input or another output.
             All but the image contents are checked before weights are downloaded.

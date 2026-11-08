@@ -70,11 +70,12 @@ a MedMLX download record.
 | `output_dir` | Directory for `detections.json` and `bundle_detections.json`; created if missing |
 | `weights_path` | Optional folder containing `network.safetensors`, or the file itself |
 | `overwrite` | `False` by default; existing outputs are never replaced |
-| `resample_raw_input` | `False` expects the bundle's 0.703125 × 0.703125 × 1.25 mm grid; `True` resamples first |
+| `resample_raw_input` | `False` requires the bundle's 0.703125 × 0.703125 × 1.25 mm grid; `True` resamples first |
 
 Keep `resample_raw_input=True` for ordinary CT. The default follows the bundle's
-pre-resampled mode: it reorients to RAS and scales intensities, but does not check or
-correct voxel spacing. Spatial units are converted to millimetres; unknown units are
+pre-resampled mode: it reorients to RAS and scales intensities without resampling, and
+rejects images whose voxel axes are more than 1e-3 mm from the bundle grid or sheared,
+the cases where the bundle's resampling would change the image. Spatial units are converted to millimetres; unknown units are
 rejected. DICOM series are not read.
 
 `detections.json` holds `medmlx.detections.v1` candidate boxes (`cccwhd`, class 0

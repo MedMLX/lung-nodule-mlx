@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from _nifti_inputs import write_mm_fixture
 from _references import FIXTURES
+from medmlx_core.errors import InvalidInputError
 
 from lung_nodule_mlx import boxes_to_world, medmlx, resample_image
 
@@ -29,12 +30,21 @@ def test_spacing_matches_monai(case: str) -> None:
     np.testing.assert_allclose(affine, SAVED[f"affine::{case}"], rtol=0, atol=1e-12)
 
 
+# MONAI Spacingd leaves these unchanged, so the unresampled default must accept them.
+ON_GRID = {"target", "near_target"}
+
+
+@pytest.mark.parametrize("resample", [True, False], ids=["resampled", "default"])
 @pytest.mark.parametrize("case", CASES)
-def test_prepare_image_matches_monai(tmp_path: Path, case: str) -> None:
-    """Compare prepared CT voxels and affine with MONAI recordings."""
+def test_prepare_image_matches_monai(tmp_path: Path, case: str, resample: bool) -> None:
+    """Compare prepared CT voxels and affine with MONAI; default rejects off-grid input."""
     path = tmp_path / f"{case}.nii"
     write_mm_fixture(path, SAVED[f"nifti::{case}"].tobytes())
-    actual, affine = medmlx.prepare_image(path, resample_raw_input=True)
+    if not resample and case not in ON_GRID:
+        with pytest.raises(InvalidInputError, match="resample_raw_input=True"):
+            medmlx.prepare_image(path)
+        return
+    actual, affine = medmlx.prepare_image(path, resample_raw_input=resample)
     assert actual.dtype == np.float32 and actual.flags.c_contiguous
     assert actual.shape == SAVED[f"prepared::{case}"].shape
     np.testing.assert_allclose(actual, SAVED[f"prepared::{case}"], rtol=0, atol=1.2e-7)
