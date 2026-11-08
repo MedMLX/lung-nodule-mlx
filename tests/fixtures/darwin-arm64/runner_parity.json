@@ -2,13 +2,13 @@
   "schema_version": "lung-nodule.runner-parity.v1",
   "platform": "darwin-arm64",
   "reason": "FP32 convolution, normalization and affine rounding differ between MLX Metal and ATen. Bounds round up the measured errors for these seeded inputs.",
-  "observation_source": "Reviewer full-suite Metal verification: 3 failed, 111 passed in 11.69s; saved bundle_detections.json outputs.",
+  "observation_source": "Metal run of tests/test_medmlx.py::test_run_matches_upstream_runner against the MONAI 1.4.0 recording; saved bundle_detections.json outputs.",
   "cases": {
     "runner_raw": {
       "world_lps": {
         "dtype": "float64",
         "shape": [
-          52,
+          57,
           6
         ],
         "allow_nan": false,
@@ -20,13 +20,13 @@
       "world_scores": {
         "dtype": "float64",
         "shape": [
-          52
+          57
         ],
         "allow_nan": false,
         "allow_inf": false,
         "rtol": 0,
         "atol": 6.6e-07,
-        "observed_max_abs": 6.556510925292969e-07
+        "observed_max_abs": 5.364418029785156e-07
       }
     }
   }

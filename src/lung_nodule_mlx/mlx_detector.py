@@ -63,13 +63,15 @@ def anchors(shape: tuple[int, ...], grid: tuple[int, ...], level: int) -> FloatA
     Returns:
         Float32 ``(prod(grid) * 3, 6)`` corner boxes. Rows run over grid
         positions in C order, then over the three anchor shapes, matching the
-        channel grouping of the head outputs. Centers sit at
-        ``index * stride + stride // 2``.
+        channel grouping of the head outputs. Centers sit at ``index * stride``,
+        as in MONAI 1.4.0, which the bundle pins and was trained with. MONAI 1.6
+        adds ``stride // 2``, which moves every decoded box of this bundle by half
+        a stride (1.4 to 2.8 mm on its grid).
     """
     step = [a // b for a, b in zip(shape, grid, strict=True)]
     shift = np.stack(
         np.meshgrid(
-            *(np.arange(n, dtype=np.float32) * s + s // 2 for n, s in zip(grid, step, strict=True)),
+            *(np.arange(n, dtype=np.float32) * s for n, s in zip(grid, step, strict=True)),
             indexing="ij",
         ),
         -1,
