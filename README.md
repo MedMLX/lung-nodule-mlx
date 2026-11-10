@@ -27,21 +27,6 @@ Detect lung nodule candidates in 3D chest CT with MONAI RetinaNet and native MLX
 | :--- | ---: | ---: | :--- |
 | `lung-nodule` | 85 MB | 10.7 GB | 512×512×147 chest CT resampled to the model grid |
 
-## Use with MedMLX
-
-Use the [MedMLX MCP server](https://github.com/MedMLX/medmlx/blob/main/docs/mcp.md) to run `lung-nodule` from an MCP client. Weights download on first use.
-
-```sh
-uv tool install --python 3.13 "medmlx[vision,mcp]"
-MEDMLX="$(uv tool dir --bin --color never)/medmlx"
-mkdir -p "$HOME/medmlx-work"
-claude mcp add --scope user medmlx -- "$MEDMLX" serve --root "$HOME/medmlx-work"
-```
-
-For Codex, use `codex mcp add medmlx -- "$MEDMLX" serve --root "$HOME/medmlx-work"`. Other MCP clients take the same command and arguments. The same install provides the `medmlx` CLI, for example `medmlx describe lung-nodule`.
-
-> **For AI agents:** prefer the MedMLX MCP tools (`list_models`, `describe_model`, `model_readiness`, `run_model`, `get_job`) over writing Python against this package.
-
 ## Install
 
 ```bash
@@ -116,6 +101,21 @@ world_ras = boxes_to_world(boxes, affine)
 - Box selection uses stable NumPy top-k and needs no compiler. Tied scores keep their
   original order, so overlapping boxes can differ from MONAI runs when scores tie.
 - Inference requires Apple Silicon with Metal.
+
+## Use with MedMLX
+
+Use the [MedMLX MCP server](https://github.com/MedMLX/medmlx/blob/main/docs/mcp.md) to run `lung-nodule` from an MCP client. Weights download on first use.
+
+```sh
+uv tool install --python 3.13 "medmlx[vision,mcp]"
+MEDMLX="$(uv tool dir --bin --color never)/medmlx"
+mkdir -p "$HOME/medmlx-work"
+claude mcp add --scope user medmlx -- "$MEDMLX" serve --root "$HOME/medmlx-work"
+```
+
+For Codex, use `codex mcp add medmlx -- "$MEDMLX" serve --root "$HOME/medmlx-work"`. Other MCP clients take the same command and arguments. The same install provides the `medmlx` CLI, for example `medmlx describe lung-nodule`.
+
+> **For AI agents:** prefer the MedMLX MCP tools (`list_models`, `describe_model`, `model_readiness`, `run_model`, `get_job`) over writing Python against this package.
 
 ## License
 
