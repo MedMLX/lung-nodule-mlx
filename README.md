@@ -23,7 +23,9 @@ Detect lung nodule candidates in 3D chest CT with MONAI RetinaNet and native MLX
 | :--- | :--- |
 | 3D chest CT · NIfTI | Candidate boxes and scores in RAS mm |
 
-Weights: 85 MB download. Peak MLX memory: 10.7 GB for a 512×512×147 chest CT resampled to the model grid.
+| Model | Weights download | Peak MLX memory | Measured on |
+| :--- | ---: | ---: | :--- |
+| `lung-nodule` | 85 MB | 10.7 GB | 512×512×147 chest CT resampled to the model grid |
 
 ## Use with MedMLX
 
@@ -57,8 +59,9 @@ result = run(image_path="ct.nii.gz", output_dir="out", resample_raw_input=True)
 print(result["outputs"]["detections"])
 ```
 
-Weights download from `MedMLX/retinanet-lung-nodule-mlx` on first use.
-Use `medmlx setup lung-nodule` to download ahead of time. For local weights, pass a folder containing `network.safetensors` as `weights_path`.
+Weights download from `MedMLX/retinanet-lung-nodule-mlx` on first use; `medmlx setup lung-nodule`
+downloads them ahead of time. For local weights, pass a folder containing
+`network.safetensors` as `weights_path`.
 
 ### Inputs and outputs
 
@@ -70,19 +73,26 @@ Use `medmlx setup lung-nodule` to download ahead of time. For local weights, pas
 | `overwrite` | `False` by default; existing outputs are never replaced |
 | `resample_raw_input` | `False` requires the bundle's 0.703125 × 0.703125 × 1.25 mm grid; `True` resamples first |
 
-Keep `resample_raw_input=True` for ordinary CT. The default follows the bundle's
-pre-resampled mode: it reorients to RAS and scales intensities without resampling, and
-rejects images whose voxel axes are more than 1e-3 mm from the bundle grid or sheared,
-the cases where the bundle's resampling would change the image. Spatial units are converted to millimetres; unspecified units are
-taken as millimetres, as the bundle's MONAI readers do. DICOM series are not read.
+Keep `resample_raw_input=True` for ordinary CT.
 
-`detections.json` holds `medmlx.detections.v1` candidate boxes (`cccwhd`, class 0
-`nodule`) in RAS millimetres with their scores; `bundle_detections.json` holds the
-MONAI bundle rows in patient LPS. Boxes map through the affine with MONAI's
-opposite-corner convention, so on oblique affines they differ from a box enclosing all
-eight corners. `run` returns `{"outputs": {...}, "details": {...}}`, with run metadata in `details`.
-Invalid inputs raise
-`InvalidInputError`; missing or mismatched weights raise `AssetNotReadyError`.
+| `resample_raw_input` | Preprocessing |
+| :--- | :--- |
+| `True` | Resamples to the bundle grid first |
+| `False` (default) | The bundle's pre-resampled mode: reorients to RAS and scales intensities without resampling. Rejects images whose voxel axes are more than 1e-3 mm from the bundle grid or sheared, the cases where the bundle's resampling would change the image |
+
+Spatial units are converted to millimetres; unspecified units are taken as millimetres,
+as the bundle's MONAI readers do. DICOM series are not read.
+
+| Output | Content |
+| :--- | :--- |
+| `detections.json` | `medmlx.detections.v1` candidate boxes (`cccwhd`, class 0 `nodule`) in RAS millimetres with their scores |
+| `bundle_detections.json` | The MONAI bundle rows in patient LPS |
+
+- Boxes map through the affine with MONAI's opposite-corner convention, so on oblique
+  affines they differ from a box enclosing all eight corners.
+- `run` returns `{"outputs": {...}, "details": {...}}`, with run metadata in `details`.
+- Invalid inputs raise `InvalidInputError`; missing or mismatched weights raise
+  `AssetNotReadyError`.
 
 ### Python API
 
@@ -101,10 +111,11 @@ boxes, scores, labels = detections(maps, padded_shape, image.shape[2:])
 world_ras = boxes_to_world(boxes, affine)
 ```
 
-Arrays are float32 NCDHW in MONAI's `(i, j, k)` order, and `detections` returns voxel
-boxes. Box selection uses stable NumPy top-k and needs no compiler; tied scores keep
-their original order, so overlapping boxes can differ from MONAI runs when scores tie.
-Inference requires Apple Silicon with Metal.
+- Arrays are float32 NCDHW in MONAI's `(i, j, k)` order, and `detections` returns voxel
+  boxes.
+- Box selection uses stable NumPy top-k and needs no compiler. Tied scores keep their
+  original order, so overlapping boxes can differ from MONAI runs when scores tie.
+- Inference requires Apple Silicon with Metal.
 
 ## License
 
