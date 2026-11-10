@@ -11,8 +11,6 @@ Detect lung nodule candidates in 3D chest CT with MONAI RetinaNet and native MLX
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97_Hugging_Face-weights-yellow)](https://huggingface.co/MedMLX/retinanet-lung-nodule-mlx)
 [![MedMLX](https://img.shields.io/badge/MedMLX-runtime-A51C30)](https://github.com/MedMLX/medmlx)
 
-[Model weights](https://huggingface.co/MedMLX/retinanet-lung-nodule-mlx) · [MedMLX](https://github.com/MedMLX/medmlx)
-
 <img src="https://raw.githubusercontent.com/MedMLX/lung-nodule-mlx/main/docs/showcase.png" alt="Chest CT with the top lung nodule detection boxed, and a close-up of the nodule" width="100%">
 
 <sub>Top detection on a [LUNA16](https://zenodo.org/records/3723295) chest CT, CC BY 4.0.</sub>
