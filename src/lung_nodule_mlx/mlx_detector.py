@@ -16,6 +16,7 @@ from __future__ import annotations
 import itertools
 import math
 from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -46,10 +47,25 @@ def numpy_topk(scores: FloatArray, k: int) -> NDArray[np.int64]:
     values = np.ascontiguousarray(scores, dtype=np.float32)
     if not np.isfinite(values).all() or not 0 <= k <= len(values):
         raise ValueError("top-k requires finite scores and 0 <= k <= count")
-    return np.argsort(-values, kind="stable")[:k].astype(np.int64)
+    if not k:
+        return np.empty(0, dtype=np.int64)
+    if k == len(values):
+        return np.argsort(-values, kind="stable").astype(np.int64)
+    threshold = np.partition(values, len(values) - k)[len(values) - k]
+    above = np.flatnonzero(values > threshold)
+    tied = np.flatnonzero(values == threshold)[: k - len(above)]
+    chosen = np.concatenate((above, tied))
+    order = np.lexsort((chosen, -values[chosen]))
+    return np.asarray(chosen[order], dtype=np.int64)
 
 
-def anchors(shape: tuple[int, ...], grid: tuple[int, ...], level: int) -> FloatArray:
+def anchors(
+    shape: tuple[int, ...],
+    grid: tuple[int, ...],
+    level: int,
+    *,
+    indices: NDArray[np.int64] | None = None,
+) -> FloatArray:
     """Anchor boxes for one feature-pyramid level, in voxels of the padded image.
 
     Args:
@@ -59,9 +75,12 @@ def anchors(shape: tuple[int, ...], grid: tuple[int, ...], level: int) -> FloatA
         level: Pyramid level index; the base anchor shapes ``(6, 8, 4)``,
             ``(8, 6, 5)`` and ``(10, 10, 6)`` voxels (from the bundle config) are
             scaled by ``2 ** level``.
+        indices: Optional flattened anchor rows, in the requested order. Build
+            only these rows after candidate selection when supplied.
 
     Returns:
-        Float32 ``(prod(grid) * 3, 6)`` corner boxes. Rows run over grid
+        Float32 ``(prod(grid) * 3, 6)`` corner boxes, or ``(len(indices), 6)``
+        when specific rows are requested. Dense rows run over grid
         positions in C order, then over the three anchor shapes, matching the
         channel grouping of the head outputs. Centers sit at ``index * stride``,
         as in MONAI 1.4.0, which the bundle pins and was trained with. MONAI 1.6
@@ -69,6 +88,22 @@ def anchors(shape: tuple[int, ...], grid: tuple[int, ...], level: int) -> FloatA
         a stride (1.4 to 2.8 mm on its grid).
     """
     step = [a // b for a, b in zip(shape, grid, strict=True)]
+    sizes = np.array([[6, 8, 4], [8, 6, 5], [10, 10, 6]], dtype=np.float32) * (2**level)
+    # AnchorGeneratorWithAnchorShape rounds half-sizes, including 2.5 -> 2.
+    base = np.round(np.concatenate((-sizes, sizes), axis=1) / 2)
+    if indices is not None:
+        positions = np.unravel_index(indices // 3, grid)
+        shift = np.stack(
+            [
+                np.asarray(position, dtype=np.float32) * stride
+                for position, stride in zip(positions, step, strict=True)
+            ],
+            axis=-1,
+        )
+        return np.asarray(
+            np.concatenate((shift, shift), axis=-1) + base[indices % 3],
+            dtype=np.float32,
+        )
     shift = np.stack(
         np.meshgrid(
             *(np.arange(n, dtype=np.float32) * s for n, s in zip(grid, step, strict=True)),
@@ -76,9 +111,6 @@ def anchors(shape: tuple[int, ...], grid: tuple[int, ...], level: int) -> FloatA
         ),
         -1,
     )
-    sizes = np.array([[6, 8, 4], [8, 6, 5], [10, 10, 6]], dtype=np.float32) * (2**level)
-    # AnchorGeneratorWithAnchorShape rounds half-sizes, including 2.5 -> 2.
-    base = np.round(np.concatenate((-sizes, sizes), axis=1) / 2)
     return np.asarray(
         (np.concatenate((shift, shift), -1)[..., None, :] + base).reshape(-1, 6), dtype=np.float32
     )
@@ -190,10 +222,59 @@ def detections(
         zip(maps["classification"], maps["box_regression"], strict=True)
     ):
         grid = tuple(cls.shape[2:])
-        anchor = anchors(padded_shape, grid, level)
-        boxes.append(decode(reg[0].transpose(1, 2, 3, 0).reshape(-1, 6), anchor))
-        logits.append(cls[0].transpose(1, 2, 3, 0).reshape(-1, 1))
+        _validate_decode_range(reg, padded_shape, grid, level)
+        level_logits = cls[0].transpose(1, 2, 3, 0).reshape(-1, 1)
+        with np.errstate(over="ignore"):
+            scores = np.float32(1) / (np.float32(1) + np.exp(-level_logits[:, 0]))
+        keep = np.flatnonzero(scores > np.float32(0.02)).astype(np.int64)
+        keep = keep[numpy_topk(scores[keep], min(1000, len(keep)))]
+        anchor = anchors(padded_shape, grid, level, indices=keep)
+        boxes.append(decode(_gather_regression(reg, grid, keep), anchor))
+        logits.append(level_logits[keep])
     return select_boxes(boxes, logits, original_shape)
+
+
+def _gather_regression(
+    regression: FloatArray,
+    grid: tuple[int, ...],
+    indices: NDArray[np.int64],
+) -> FloatArray:
+    """Gather six deltas per selected anchor without a dense channel rearrangement."""
+    x, y, z = np.unravel_index(indices // 3, grid)
+    channels = (indices % 3)[:, None] * 6 + np.arange(6)
+    return np.asarray(regression[0, channels, x[:, None], y[:, None], z[:, None]], dtype=np.float32)
+
+
+def _validate_decode_range(
+    regression: FloatArray,
+    shape: tuple[int, ...],
+    grid: tuple[int, ...],
+    level: int,
+) -> None:
+    """Preserve rejection of invalid coordinates even in discarded candidates.
+
+    Normal finite model deltas have ample FP32 headroom. Check their range
+    without decoding dense boxes; exceptional ranges use the original decoder
+    in bounded blocks so overflow and nonfinite behavior remain unchanged.
+    """
+    lower = cast(FloatArray, np.min(regression[0], axis=(1, 2, 3)))
+    upper = cast(FloatArray, np.max(regression[0], axis=(1, 2, 3)))
+    largest_delta = max(float(np.max(np.abs(lower))), float(np.max(np.abs(upper))))
+    max_size = 10 * (2**level)
+    bound = largest_delta * max_size + max(shape) + max_size * (1000 / 16)
+    if (
+        np.isfinite(lower).all()
+        and np.isfinite(upper).all()
+        and (bound < float(np.finfo(np.float32).max) / 2)
+    ):
+        return
+    count = math.prod(grid) * 3
+    for start in range(0, count, 16384):
+        indices = np.arange(start, min(start + 16384, count), dtype=np.int64)
+        decode(
+            _gather_regression(regression, grid, indices),
+            anchors(shape, grid, level, indices=indices),
+        )
 
 
 def predict_maps(

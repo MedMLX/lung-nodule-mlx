@@ -81,6 +81,9 @@ def test_topk_scores_match_recorded_upstream(n: int, k: int) -> None:
     actual = scores[numpy_topk(scores, k)]
     indices = cast(np.ndarray[tuple[int, ...], np.dtype[np.int64]], saved["indices"])
     exact(actual, scores[indices], "top-k scores")
+    # The public deterministic rule is stronger than upstream's unspecified
+    # ordering among ties, including ties crossing the partition boundary.
+    np.testing.assert_array_equal(numpy_topk(scores, k), np.argsort(-scores, kind="stable")[:k])
 
 
 @pytest.mark.parametrize(
@@ -125,6 +128,48 @@ def test_multilevel_head_maps_to_detections() -> None:
             # Decode exp: observed 4.7684e-7 voxel error; sigmoid: 5.9605e-8.
             bound = 5e-7 if key == "selected" else 6e-8
             np.testing.assert_allclose(value, cast(RealArray, saved[key]), rtol=0, atol=bound)
+
+
+@pytest.mark.parametrize("seed", [1, 17, 93])
+def test_sparse_candidate_decode_preserves_dense_selection(seed: int) -> None:
+    """Retain exact detection order with tied, empty and clipped candidates."""
+    rng = np.random.default_rng(seed)
+    shape = (48, 40, 24)
+    maps: Maps = {"classification": [], "box_regression": []}
+    boxes: list[FloatArray] = []
+    logits: list[FloatArray] = []
+    for level, grid in enumerate(((12, 10, 6), (6, 5, 3), (3, 2, 1))):
+        cls = rng.integers(-8, 4, size=(1, 3, *grid)).astype(np.float32)
+        reg = rng.normal(0, 0.5, size=(1, 18, *grid)).astype(np.float32)
+        if level == 1:
+            cls.fill(-100)
+        maps["classification"].append(cls)
+        maps["box_regression"].append(reg)
+        boxes.append(
+            decode(reg[0].transpose(1, 2, 3, 0).reshape(-1, 6), anchors(shape, grid, level))
+        )
+        logits.append(cls[0].transpose(1, 2, 3, 0).reshape(-1, 1))
+    expected = select_boxes(boxes, logits, shape)
+    actual = detections(maps, shape, shape)
+    for result, baseline in zip(actual, expected, strict=True):
+        np.testing.assert_array_equal(result, baseline)
+
+
+@pytest.mark.parametrize("bad_delta", [np.finfo(np.float32).max, np.nan, np.inf])
+def test_discarded_candidates_still_reject_nonfinite_decoded_boxes(bad_delta: float) -> None:
+    maps: Maps = {
+        "classification": [np.full((1, 3, 2, 2, 2), -100, dtype=np.float32)],
+        "box_regression": [np.zeros((1, 18, 2, 2, 2), dtype=np.float32)],
+    }
+    maps["box_regression"][0][0, 0, 0, 0, 0] = bad_delta
+    with (
+        np.errstate(over="ignore", invalid="ignore"),
+        pytest.raises(
+            ValueError,
+            match="Non-finite decoded lung boxes",
+        ),
+    ):
+        detections(maps, (8, 8, 8), (8, 8, 8))
 
 
 @pytest.mark.parametrize(
