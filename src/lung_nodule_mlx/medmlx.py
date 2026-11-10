@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import mkdtemp
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -253,17 +254,39 @@ def _check_aliases(outputs: tuple[Path, ...], inputs: tuple[Path, ...]) -> None:
 
 
 def _publish(texts: dict[Path, Callable[[], str]]) -> None:
-    """Stage output text in a private directory, then rename it into place.
-
-    Earlier outputs stay untouched until every new file is complete, and a failed
-    write leaves no partial files behind.
-    """
-    with TemporaryDirectory(prefix=".lung-nodule-mlx-", dir=next(iter(texts)).parent) as staging:
-        partials = {path: Path(staging) / path.name for path in texts}
+    """Stage outputs and restore the prior files if publication fails."""
+    staging = Path(mkdtemp(prefix=".lung-nodule-mlx-", dir=next(iter(texts)).parent))
+    cleanup = True
+    try:
+        partials = {path: staging / path.name for path in texts}
         for path, text in texts.items():
             partials[path].write_text(text(), encoding="utf-8")
-        for path, partial in partials.items():
-            os.replace(partial, path)
+        backups: dict[Path, Path] = {}
+        for index, path in enumerate(texts):
+            if path.exists() or path.is_symlink():
+                backup = staging / f".backup-{index}"
+                os.link(path, backup, follow_symlinks=False)
+                backups[path] = backup
+        changed: list[Path] = []
+        try:
+            for path, partial in partials.items():
+                os.replace(partial, path)
+                changed.append(path)
+        except BaseException:
+            try:
+                for path in reversed(changed):
+                    backup = backups.get(path)
+                    if backup is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        os.replace(backup, path)
+            except OSError as error:
+                cleanup = False
+                raise OSError(f"Cannot restore outputs; backups retained at {staging}") from error
+            raise
+    finally:
+        if cleanup:
+            shutil.rmtree(staging)
 
 
 def run(

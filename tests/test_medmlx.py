@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -31,6 +32,38 @@ def write_volume(directory: Path, case: str = "oblique") -> Path:
     path = directory / f"{case}.nii"
     write_mm_fixture(path, INPUTS[f"nifti::{case}"].tobytes())
     return path
+
+
+def test_publication_failure_restores_prior_records(
+    tmp_path: Path, weights_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = write_volume(tmp_path)
+    output = tmp_path / "out"
+    output.mkdir()
+    first = output / medmlx.BUNDLE_DETECTIONS
+    second = output / medmlx.DETECTIONS
+    first.write_text("old bundle", encoding="utf-8")
+    second.write_text("old detections", encoding="utf-8")
+    replace = os.replace
+    failed = False
+
+    def fail_second(source: Path, destination: Path) -> None:
+        nonlocal failed
+        if destination == second and not failed:
+            failed = True
+            raise OSError("injected publication failure")
+        replace(source, destination)
+
+    monkeypatch.setattr(medmlx.os, "replace", fail_second)
+    with pytest.raises(OSError, match="injected publication failure"):
+        medmlx.run(
+            image_path=str(source), weights_path=str(weights_file),
+            output_dir=str(output), resample_raw_input=True, overwrite=True,
+        )
+
+    assert first.read_text(encoding="utf-8") == "old bundle"
+    assert second.read_text(encoding="utf-8") == "old detections"
+    assert not list(output.glob(".lung-nodule-mlx-*"))
 
 
 @pytest.fixture(scope="module")
