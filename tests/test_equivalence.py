@@ -214,3 +214,29 @@ def test_oblique_box_interchange() -> None:
         saved["world"],
         "world boxes",
     )
+
+
+@pytest.mark.mlx
+@pytest.mark.parametrize("stride", [(1, 1, 1), (2, 1, 2)])
+def test_multi_slab_convolution_preserves_outputs(stride: tuple[int, int, int]) -> None:
+    """Keep padding, striding and the short final slab equal under both storage policies."""
+    from medmlx_core.runtime import import_mlx
+
+    mx = cast(ArrayRuntime, import_mlx())
+    rng = np.random.default_rng(563)
+    values = mx.array(rng.normal(0, 1, (1, 67, 64, 48, 64)).astype(np.float32))
+    weights = {
+        "head.weight": mx.array(rng.normal(0, 0.01, (4, 3, 3, 3, 64)).astype(np.float32)),
+        "head.bias": mx.array(rng.normal(0, 0.01, (4,)).astype(np.float32)),
+    }
+    compact = RetinaNet(weights, mx=mx).conv(values, "head", stride)
+    retained = RetinaNet(weights, mx=mx, conv_output_policy="concatenate").conv(
+        values, "head", stride
+    )
+    padded = mx.pad(values, [(0, 0), (1, 1), (1, 1), (1, 1), (0, 0)])
+    direct = mx.conv3d(padded, weights["head.weight"], stride=stride) + weights["head.bias"]
+    mx.eval(compact, retained, direct)
+    observed = cast(FloatArray, np.asarray(compact))
+    np.testing.assert_array_equal(observed, cast(FloatArray, np.asarray(retained)))
+    # Native full-volume and slab kernels may choose different FP32 contractions.
+    np.testing.assert_allclose(observed, cast(FloatArray, np.asarray(direct)), rtol=0, atol=2e-6)

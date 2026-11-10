@@ -7,7 +7,7 @@ MONAI's (i, j, k) order; only the channel dimension moves for Metal.
 from __future__ import annotations
 
 from math import gcd
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 from medmlx_core.layout import to_ncdhw, to_ndhwc
@@ -76,10 +76,24 @@ class RetinaNet:
     while this class binds the supplied mapping without validation.
     """
 
-    def __init__(self, weights: dict[str, array], *, mx: ArrayRuntime) -> None:
-        """Bind native weights and the MLX runtime."""
+    def __init__(
+        self,
+        weights: dict[str, array],
+        *,
+        mx: ArrayRuntime,
+        conv_output_policy: Literal["bounded", "concatenate"] = "bounded",
+    ) -> None:
+        """Bind weights and choose bounded slab storage or faster concatenation.
+
+        ``bounded`` fills one output, releasing each completed slab. ``concatenate``
+        retains all slabs until concatenation and can use more memory for less copying.
+        Both use identical convolution arithmetic and whole-volume normalization.
+        """
+        if conv_output_policy not in {"bounded", "concatenate"}:
+            raise ValueError("conv_output_policy must be bounded or concatenate")
         self.mx = mx
         self.weights = weights
+        self.conv_output_policy = conv_output_policy
 
     def conv(self, x: array, p: str, stride: tuple[int, int, int] = (1, 1, 1)) -> array:
         """Cubic-kernel 3D convolution of ``x`` with weights ``p + ".weight"``.
@@ -98,6 +112,10 @@ class RetinaNet:
         slab = max(1, (256 * 1024**2) // (4 * plane * k**3 * x.shape[-1]))
         length = (x.shape[1] + 2 * pad - k) // stride[0] + 1
         chunks: list[array] = []
+        out = None
+        if length > slab and self.conv_output_policy == "bounded":
+            spatial = tuple((x.shape[a + 1] + 2 * pad - k) // stride[a] + 1 for a in range(3))
+            out = mx.zeros((x.shape[0], *spatial, w.shape[0]), dtype=x.dtype)
         for start in range(0, length, slab):
             stop = min(start + slab, length)
             lo, hi = start * stride[0] - pad, (stop - 1) * stride[0] - pad + k
@@ -110,7 +128,14 @@ class RetinaNet:
             if p + ".bias" in self.weights:
                 y = y + self.weights[p + ".bias"]
             mx.eval(y)
-            chunks.append(y)
+            if out is None:
+                chunks.append(y)
+            else:
+                # Evaluate before the next slab so old destination buffers can be donated.
+                out[:, start:stop] = y
+                mx.eval(out)
+        if out is not None:
+            return out
         out = mx.concatenate(chunks, axis=1) if len(chunks) > 1 else chunks[0]
         mx.eval(out)
         return out
