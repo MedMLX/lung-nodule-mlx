@@ -8,25 +8,25 @@
       "world_lps": {
         "dtype": "float64",
         "shape": [
-          57,
+          59,
           6
         ],
         "allow_nan": false,
         "allow_inf": false,
         "rtol": 0,
-        "atol": 1.6e-05,
-        "observed_max_abs": 1.52587890625e-05
+        "atol": 2e-05,
+        "observed_max_abs": 1.9073486328125e-05
       },
       "world_scores": {
         "dtype": "float64",
         "shape": [
-          57
+          59
         ],
         "allow_nan": false,
         "allow_inf": false,
         "rtol": 0,
         "atol": 6.6e-07,
-        "observed_max_abs": 5.364418029785156e-07
+        "observed_max_abs": 3.2782554626464844e-07
       }
     }
   }

@@ -12,7 +12,9 @@ from medmlx_core.errors import InvalidInputError
 
 from lung_nodule_mlx import boxes_to_world, medmlx, resample_image
 
-with np.load(FIXTURES / "spacing.npz", allow_pickle=False) as recording:
+with np.load(
+    FIXTURES.parent.parent.parent / "work/real-reference/spacing.npz", allow_pickle=False
+) as recording:
     SAVED = dict(recording)
 CASES = [str(name) for name in SAVED["cases"]]
 

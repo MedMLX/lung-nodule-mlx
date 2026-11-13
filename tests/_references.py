@@ -20,7 +20,10 @@ def load(path: Path) -> dict[str, HostArray]:
 
 def reference(name: str) -> dict[str, HostArray]:
     """Load a named upstream reference archive."""
-    return load(FIXTURES / f"{name}.npz")
+    directory = FIXTURES
+    if name == "retinanet" or name.startswith("windows_"):
+        directory = FIXTURES.parent.parent.parent / "work/real-reference"
+    return load(directory / f"{name}.npz")
 
 
 def exact(actual: HostArray, expected: HostArray, name: str) -> None:

@@ -23,7 +23,8 @@ from lung_nodule_mlx._typing import (
 )
 
 WEIGHT_SEED = 20261007
-INPUTS = load(FIXTURES / "runner_inputs.npz")
+REAL_REFERENCES = FIXTURES.parent.parent.parent / "work/real-reference"
+INPUTS = load(REAL_REFERENCES / "runner_inputs.npz")
 LPS_TO_RAS = np.array([-1, -1, 1, 1, 1, 1])
 
 
@@ -96,7 +97,7 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path) -> None
     )
     bundle_file = Path(result["outputs"]["bundle_detections"])
     name = "runner_raw"
-    expected = load(FIXTURES / f"{name}.npz")
+    expected = load(REAL_REFERENCES / f"{name}.npz")
     assert int(expected["weight_seed"]) == WEIGHT_SEED
     rows = json.loads(bundle_file.read_text())
     assert len(rows) == 1 and rows[0]["image"] == str(source.resolve())
@@ -127,7 +128,7 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
     """Replay recorded upstream head maps and compare the runner's world boxes."""
     from lung_nodule_mlx import mlx_detector, mlx_model
 
-    expected = load(FIXTURES / "runner_raw.npz")
+    expected = load(REAL_REFERENCES / "runner_raw.npz")
     weights = tmp_path / "network.safetensors"
     weights.write_bytes(b"recorded head maps replace network execution")
 
