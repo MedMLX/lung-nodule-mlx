@@ -7,6 +7,8 @@ is implemented. Computation is float64 and the returned voxels are float32.
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import cast
 
@@ -16,7 +18,9 @@ from numpy.typing import NDArray
 
 BUNDLE_SPACING = (0.703125, 0.703125, 1.25)
 _AFFINE_TOL = 1e-3  # monai.data.utils.AFFINE_TOL
+# Bounds the float64 coordinates and gathered corners of all chunks in flight.
 _CHUNK_VOXELS = 1 << 18
+_THREADS = min(8, os.cpu_count() or 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,9 +161,20 @@ def resample_image(
         return np.ascontiguousarray(data), grid.affine
     result = np.empty(grid.shape, dtype=np.float32)
     flat = result.reshape(-1)
-    for start in range(0, flat.size, _CHUNK_VOXELS):
-        stop = min(flat.size, start + _CHUNK_VOXELS)
+    # _THREADS chunks run at once (NumPy releases the GIL), each a fraction of
+    # _CHUNK_VOXELS, so their float64 temporaries together stay within one serial
+    # chunk. Output voxels are independent; on hcc_063 the result is bitwise
+    # identical to the serial 256K-voxel loop.
+    chunk = max(1, _CHUNK_VOXELS // _THREADS)
+
+    def fill(start: int) -> None:
+        stop = min(flat.size, start + chunk)
         indices = np.asarray(np.unravel_index(np.arange(start, stop), grid.shape), np.float64)
         coordinates = grid.pull[:3, :3] @ indices + grid.pull[:3, 3, None]
         flat[start:stop] = _trilinear(data, coordinates)
+
+    with ThreadPoolExecutor(max_workers=_THREADS) as pool:
+        chunks = [pool.submit(fill, start) for start in range(0, flat.size, chunk)]
+        for task in chunks:
+            task.result()
     return result, grid.affine
