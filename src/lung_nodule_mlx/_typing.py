@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypedDict
 
 import numpy as np
+from medmlx_core.outputs import Artifact
 from medmlx_core.typing import MlxRuntime
 from numpy.typing import ArrayLike, NDArray
 
@@ -140,4 +141,5 @@ class RunOutputs(TypedDict):
 
 class RunResult(TypedDict):
     outputs: RunOutputs
+    artifacts: dict[str, Artifact]
     details: RunDetails

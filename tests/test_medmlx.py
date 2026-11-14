@@ -13,6 +13,7 @@ from _fixture_inputs import seeded_weights
 from _nifti_inputs import write_mm_fixture
 from _references import FIXTURES, exact, load, runner_atol
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError
+from medmlx_core.outputs import validate_outputs
 
 from lung_nodule_mlx import medmlx, required_shapes
 from lung_nodule_mlx._typing import (
@@ -96,6 +97,11 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path) -> None
         resample_raw_input=True,
     )
     bundle_file = Path(result["outputs"]["bundle_detections"])
+    _, artifacts = validate_outputs(cast("dict[str, object]", result))
+    assert {role: (item["kind"], item["coordinate_space"]) for role, item in artifacts.items()} == {
+        "detections": ("detection_set", "image_physical"),
+        "bundle_detections": ("detection_set", "patient"),
+    }
     name = "runner_raw"
     expected = load(REAL_REFERENCES / f"{name}.npz")
     assert int(expected["weight_seed"]) == WEIGHT_SEED

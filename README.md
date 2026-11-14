@@ -71,7 +71,9 @@ as the bundle's MONAI readers do. DICOM series are not read.
 
 - Boxes map through the affine with MONAI's opposite-corner convention, so on oblique
   affines they differ from a box enclosing all eight corners.
-- `run` returns `{"outputs": {...}, "details": {...}}`, with run metadata in `details`.
+- `run` returns `{"outputs": {...}, "artifacts": {...}, "details": {...}}`. `artifacts` marks
+  `detections.json` as boxes in image world (RAS) space and `bundle_detections.json` as boxes
+  in patient (LPS) space; run metadata is in `details`.
 - Invalid inputs raise `InvalidInputError`; missing or mismatched weights raise
   `AssetNotReadyError`.
 

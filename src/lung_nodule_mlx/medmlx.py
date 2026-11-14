@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError, ModelExecutionError
+from medmlx_core.outputs import artifact
 from medmlx_core.weights import weights_dir, weights_revision
 
 from lung_nodule_mlx._typing import (
@@ -339,7 +340,10 @@ def run(
         and size in mm) in the input image's NIfTI RAS space with class
         ``0`` (nodule) scores, and ``bundle_detections`` to
         ``bundle_detections.json``, the same boxes in the MONAI bundle's
-        patient-LPS output format. ``details`` holds the detection count and
+        patient-LPS output format. ``artifacts`` marks both as ``detection_set``:
+        ``detections`` in ``image_physical`` space (NIfTI RAS mm) and
+        ``bundle_detections`` in ``patient`` space (DICOM LPS mm); neither is
+        on the input's voxel grid. ``details`` holds the detection count and
         runtime facts.
 
     Raises:
@@ -419,6 +423,10 @@ def run(
         "outputs": {
             "detections": detections_file.resolve().as_posix(),
             "bundle_detections": bundle_file.resolve().as_posix(),
+        },
+        "artifacts": {
+            "detections": artifact(kind="detection_set", coordinate_space="image_physical"),
+            "bundle_detections": artifact(kind="detection_set", coordinate_space="patient"),
         },
         "details": {
             "weights_revision": weights_revision(weights_file.parent),
