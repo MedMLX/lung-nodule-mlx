@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import NoReturn, cast
 
+import medmlx_core.weights as core_weights
 import numpy as np
 import pytest
 from _fixture_inputs import seeded_weights
@@ -36,38 +36,6 @@ def write_volume(directory: Path, case: str = "oblique") -> Path:
     return path
 
 
-def test_publication_failure_restores_prior_records(
-    tmp_path: Path, weights_file: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    source = write_volume(tmp_path)
-    output = tmp_path / "out"
-    output.mkdir()
-    first = output / medmlx.BUNDLE_DETECTIONS
-    second = output / medmlx.DETECTIONS
-    first.write_text("old bundle", encoding="utf-8")
-    second.write_text("old detections", encoding="utf-8")
-    replace = os.replace
-    failed = False
-
-    def fail_second(source: Path, destination: Path) -> None:
-        nonlocal failed
-        if destination == second and not failed:
-            failed = True
-            raise OSError("injected publication failure")
-        replace(source, destination)
-
-    monkeypatch.setattr(medmlx.os, "replace", fail_second)
-    with pytest.raises(OSError, match="injected publication failure"):
-        medmlx.run(
-            image_path=str(source), weights_path=str(weights_file),
-            output_dir=str(output), resample_raw_input=True, overwrite=True,
-        )
-
-    assert first.read_text(encoding="utf-8") == "old bundle"
-    assert second.read_text(encoding="utf-8") == "old detections"
-    assert not list(output.glob(".lung-nodule-mlx-*"))
-
-
 @pytest.fixture(scope="module")
 def mx() -> ArrayRuntime:
     """Load the Metal runtime for seeded inference tests."""
@@ -90,9 +58,9 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path) -> None
     source = write_volume(tmp_path)
     output = tmp_path / "out"
     output.mkdir()
-    result = medmlx.run(
+    result = medmlx.detect(
         image_path=str(source),
-        weights_path=str(weights_file),
+        weights_path=str(weights_file.parent),
         output_dir=str(output),
         resample_raw_input=True,
     )
@@ -158,9 +126,9 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
     monkeypatch.setattr(medmlx, "load_weights", no_weights)
     monkeypatch.setattr(mlx_model, "RetinaNet", no_network)
     monkeypatch.setattr(mlx_detector, "predict_maps", predict)
-    result = medmlx.run(
+    result = medmlx.detect(
         image_path=str(write_volume(tmp_path)),
-        weights_path=str(weights),
+        weights_path=str(tmp_path),
         output_dir=str(tmp_path / "out"),
     )
     rows = json.loads(Path(result["outputs"]["bundle_detections"]).read_text())
@@ -187,7 +155,7 @@ def test_run_rejects_bad_arguments_before_downloading_weights(
         """Fail the test if weights are fetched before the arguments are checked."""
         raise AssertionError(f"downloaded {model_id} before checking arguments")
 
-    monkeypatch.setattr(medmlx, "weights_dir", download)
+    monkeypatch.setattr(core_weights, "weights_dir", download)
     image, output, resample = write_volume(tmp_path), tmp_path / "out", False
     if problem == "missing_image":
         image = tmp_path / "absent.nii"
@@ -200,7 +168,7 @@ def test_run_rejects_bad_arguments_before_downloading_weights(
         output.mkdir()
         (output / "detections.json").symlink_to(tmp_path / "absent.json")
     with pytest.raises(InvalidInputError):
-        medmlx.run(image_path=image, output_dir=output, resample_raw_input=resample)
+        medmlx.detect(image_path=image, output_dir=output, resample_raw_input=resample)
     if problem == "dangling_output":
         assert (output / "detections.json").is_symlink()
 
@@ -212,17 +180,20 @@ def test_run_rejects_missing_and_mismatched_weights(
     """Reject missing, unreadable, incomplete and unconverted-layout checkpoints."""
     weights = mx.load(str(weights_file), format="safetensors")
     name = "feature_extractor.body.conv1.weight"
-    (tmp_path / "broken.safetensors").write_bytes(b"not safetensors")
+    folders = {label: tmp_path / label for label in ("absent", "broken", "partial", "oidhw")}
+    for folder in folders.values():
+        folder.mkdir()
+    (folders["broken"] / "network.safetensors").write_bytes(b"not safetensors")
     partial = {key: value for key, value in weights.items() if key != name}
-    mx.save_safetensors(str(tmp_path / "partial.safetensors"), partial)
+    mx.save_safetensors(str(folders["partial"] / "network.safetensors"), partial)
     oidhw = {**weights, name: mx.transpose(weights[name], (0, 4, 1, 2, 3))}
-    mx.save_safetensors(str(tmp_path / "oidhw.safetensors"), oidhw)
+    mx.save_safetensors(str(folders["oidhw"] / "network.safetensors"), oidhw)
     source = write_volume(tmp_path)
-    for label in ("absent", "broken", "partial", "oidhw"):
+    for folder in folders.values():
         with pytest.raises(AssetNotReadyError):
-            medmlx.run(
+            medmlx.detect(
                 image_path=source,
-                weights_path=tmp_path / f"{label}.safetensors",
+                weights_path=folder,
                 output_dir=tmp_path / "out",
                 resample_raw_input=True,
             )

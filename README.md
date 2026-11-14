@@ -36,9 +36,9 @@ uv pip install "lung-nodule-mlx>=0.2.7"
 ## Run
 
 ```python
-from lung_nodule_mlx.medmlx import run
+from lung_nodule_mlx import detect
 
-result = run(image_path="ct.nii.gz", output_dir="out")
+result = detect(image_path="ct.nii.gz", output_dir="out")
 print(result["outputs"]["detections"])
 ```
 
@@ -52,8 +52,8 @@ downloads them ahead of time. For local weights, pass a folder containing
 | --- | --- |
 | `image_path` | One scalar 3D chest CT in NIfTI, in Hounsfield units, with `mm`, `meter` or `micron` spatial units; unspecified units are taken as mm, as MONAI does |
 | `output_dir` | Directory for `detections.json` and `bundle_detections.json`; created if missing |
-| `weights_path` | Optional folder containing `network.safetensors`, or the file itself |
-| `overwrite` | `False` by default; existing outputs are never replaced |
+| `weights_path` | Optional folder containing `network.safetensors` |
+| `overwrite` | `False` by default; existing outputs are replaced only when `True` |
 | `resample_raw_input` | `True` by default: resamples to the bundle's 0.703125 × 0.703125 × 1.25 mm grid first, so ordinary CT works. `False` requires input already on that grid |
 
 | `resample_raw_input` | Preprocessing |

@@ -1,6 +1,7 @@
 """Native MLX implementation of MONAI 3D RetinaNet lung nodule detector."""
 
 from lung_nodule_mlx.boxes import boxes_to_world
+from lung_nodule_mlx.medmlx import detect
 from lung_nodule_mlx.mlx_detector import (
     DIVISIBLE,
     PATCH,
@@ -25,6 +26,7 @@ __all__ = [
     "anchors",
     "boxes_to_world",
     "decode",
+    "detect",
     "detections",
     "numpy_topk",
     "predict_maps",

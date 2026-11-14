@@ -7,17 +7,14 @@ and writes boxes in world millimeters. Its outputs are not a clinical finding.
 from __future__ import annotations
 
 import json
-import os
-import shutil
-from collections.abc import Callable
 from pathlib import Path
-from tempfile import mkdtemp
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError, ModelExecutionError
+from medmlx_core.files import PathLike, input_file, output_targets, publish
 from medmlx_core.outputs import artifact
-from medmlx_core.weights import weights_dir, weights_revision
+from medmlx_core.weights import model_folder, weights_revision
 
 from lung_nodule_mlx._typing import (
     ArrayRuntime,
@@ -37,7 +34,7 @@ MODEL = {
     "id": "lung-nodule",
     "label": "Lung nodule CT detection",
     "task": "detection",
-    "run": "lung_nodule_mlx.medmlx:run",
+    "run": "lung_nodule_mlx.medmlx:detect",
     # Measured MLX peak for a 512x512x147 chest CT resampled to the model grid;
     # larger inputs need more.
     "peak_memory_gb": 10.8,
@@ -51,8 +48,7 @@ BUNDLE_VERSION = "0.6.10"
 CLASSES = {"0": "nodule"}
 _RAS_LPS_FLIP = (-1.0, -1.0, 1.0)
 _WEIGHTS_HINT = (
-    "Pass a model folder containing network.safetensors, or the checkpoint file, "
-    "as weights_path."
+    "Omit weights_path to download it, or pass a model folder containing network.safetensors."
 )
 
 
@@ -242,59 +238,11 @@ def load_weights(path: Path, mx: ArrayRuntime) -> dict[str, array]:
     return weights
 
 
-def _check_aliases(outputs: tuple[Path, ...], inputs: tuple[Path, ...]) -> None:
-    """Refuse an output that aliases an input or another output."""
-    for index, destination in enumerate(outputs):
-        for other in (*inputs, *outputs[index + 1 :]):
-            if destination.resolve() == other.resolve() or (
-                destination.exists() and other.exists() and destination.samefile(other)
-            ):
-                raise InvalidInputError(
-                    f"Lung detector output must not alias another path: {destination}"
-                )
-
-
-def _publish(texts: dict[Path, Callable[[], str]]) -> None:
-    """Stage outputs and restore the prior files if publication fails."""
-    staging = Path(mkdtemp(prefix=".lung-nodule-mlx-", dir=next(iter(texts)).parent))
-    cleanup = True
-    try:
-        partials = {path: staging / path.name for path in texts}
-        for path, text in texts.items():
-            partials[path].write_text(text(), encoding="utf-8")
-        backups: dict[Path, Path] = {}
-        for index, path in enumerate(texts):
-            if path.exists() or path.is_symlink():
-                backup = staging / f".backup-{index}"
-                os.link(path, backup, follow_symlinks=False)
-                backups[path] = backup
-        changed: list[Path] = []
-        try:
-            for path, partial in partials.items():
-                os.replace(partial, path)
-                changed.append(path)
-        except BaseException:
-            try:
-                for path in reversed(changed):
-                    backup = backups.get(path)
-                    if backup is None:
-                        path.unlink(missing_ok=True)
-                    else:
-                        os.replace(backup, path)
-            except OSError as error:
-                cleanup = False
-                raise OSError(f"Cannot restore outputs; backups retained at {staging}") from error
-            raise
-    finally:
-        if cleanup:
-            shutil.rmtree(staging)
-
-
-def run(
+def detect(
     *,
-    image_path: str | Path,
-    weights_path: str | Path | None = None,
-    output_dir: str | Path,
+    image_path: PathLike,
+    weights_path: PathLike | None = None,
+    output_dir: PathLike,
     overwrite: bool = False,
     resample_raw_input: bool = True,
 ) -> RunResult:
@@ -322,13 +270,12 @@ def run(
         image_path: Chest CT volume in Hounsfield units (NIfTI), with mm, meter
             or micron spatial units; unspecified units are taken as mm.
         weights_path: Optional model folder containing ``network.safetensors``. Omit
-            to download ``MedMLX/retinanet-lung-nodule-mlx`` automatically. Explicit native
-            ``.safetensors`` checkpoint paths remain accepted. The native weights were
+            to download ``MedMLX/retinanet-lung-nodule-mlx`` automatically. The native weights were
             originally published at ``MedMLX/retinanet-lung-nodule-mlx`` revision
             ``d2d635fbac34254f14192ac348a05d275a949317``.
         output_dir: Directory for the outputs; created if missing.
         overwrite: Replace existing outputs (default ``False``); must be a bool.
-            Outputs may not alias each other or the input or weights. New outputs
+            Outputs may not alias each other or the input. New outputs
             replace earlier ones only after the whole run succeeds. Alias detection is
             a preflight check, not protection against concurrent path changes.
         resample_raw_input: Resample the CT to the bundle grid (default ``True``).
@@ -358,37 +305,21 @@ def run(
         ModelExecutionError: The network produced non-finite head maps.
     """
 
-    source = Path(image_path).expanduser()
-    if not source.is_file():
-        raise InvalidInputError(f"Missing input image: {source}")
-    for name, flag in (("overwrite", overwrite), ("resample_raw_input", resample_raw_input)):
-        if not isinstance(cast(object, flag), bool):
-            raise InvalidInputError(f"{name} must be true or false")
-    output = Path(output_dir).expanduser()
-    if output.exists() and not output.is_dir():
-        raise InvalidInputError(f"output_dir is not a directory: {output}")
-    detections_file = output / DETECTIONS
-    bundle_file = output / BUNDLE_DETECTIONS
-    outputs = (detections_file, bundle_file)
-    _check_aliases(outputs, (source,))
-    existing = [path.as_posix() for path in outputs if path.exists() or path.is_symlink()]
-    if existing and not overwrite:
-        raise InvalidInputError(
-            f"Lung detector outputs already exist: {', '.join(existing)}; "
-            "pass overwrite=true to replace them"
-        )
-    bundle_dir = (
-        weights_dir("lung-nodule")
-        if weights_path is None else Path(weights_path).expanduser()
+    source = input_file("image_path", image_path)
+    if not isinstance(cast(object, resample_raw_input), bool):
+        raise InvalidInputError("resample_raw_input must be true or false")
+    targets = output_targets(
+        output_dir, {"detections": DETECTIONS, "bundle_detections": BUNDLE_DETECTIONS},
+        overwrite=overwrite, inputs=[source],
     )
-    weights_file = bundle_dir / "network.safetensors" if bundle_dir.is_dir() else bundle_dir
+    detections_file, bundle_file = targets["detections"], targets["bundle_detections"]
+    weights_file = model_folder("lung-nodule", weights_path) / "network.safetensors"
     if not weights_file.is_file():
         raise AssetNotReadyError(
             f"Missing lung detector asset: {weights_file}",
             reason=f"missing {weights_file}",
             hint=_WEIGHTS_HINT,
         )
-    _check_aliases(outputs, (weights_file,))
 
     from medmlx_core.runtime import import_mlx
 
@@ -414,10 +345,11 @@ def run(
     world = boxes_to_world(boxes, lps)
     rows = bundle_rows(str(source.resolve()), world, scores)
     record = detection_record(rows, bundle_file.resolve().as_posix())
-    output.mkdir(parents=True, exist_ok=True)
-    _publish({
-        bundle_file: lambda: json.dumps(rows, indent=2) + "\n",
-        detections_file: lambda: json.dumps(record, indent=2, sort_keys=True),
+    bundle_text = json.dumps(rows, indent=2) + "\n"
+    record_text = json.dumps(record, indent=2, sort_keys=True)
+    publish({
+        bundle_file: lambda path: path.write_text(bundle_text, encoding="utf-8"),
+        detections_file: lambda path: path.write_text(record_text, encoding="utf-8"),
     })
     return {
         "outputs": {
