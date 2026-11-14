@@ -61,7 +61,7 @@ _UNITS_ERROR = "Lung NIfTI spatial units must be mm, meter, micron or unspecifie
 def prepare_image(
     path: Path,
     *,
-    resample_raw_input: bool = False,
+    resample_raw_input: bool = True,
 ) -> tuple[FloatArray, DoubleArray]:
     """Load a NIfTI CT and apply the pinned bundle's preprocessing.
 
@@ -70,11 +70,11 @@ def prepare_image(
     do), optionally resample (the bundle's ``Spacingd``), and
     scale HU from [-1024, 300] linearly into [0, 1] with clipping. The bundle
     disables ``Spacingd`` by default (``whether_raw_luna16=false``) without
-    checking spacing. The default here requires an image already on the
-    bundle's 0.703125 x 0.703125 x 1.25 mm grid, meaning one ``Spacingd`` would
-    leave unchanged (each axis within 1e-3 mm, no shear), and rejects any other.
-    ``resample_raw_input=True`` enables the resampling, as the bundle's
-    ``whether_raw_luna16=true`` does.
+    checking spacing. The default here, ``resample_raw_input=True``, enables the
+    resampling, as the bundle's ``whether_raw_luna16=true`` does.
+    ``resample_raw_input=False`` requires an image already on the bundle's
+    0.703125 x 0.703125 x 1.25 mm grid, meaning one ``Spacingd`` would leave
+    unchanged (each axis within 1e-3 mm, no shear), and rejects any other.
 
     Returns:
         Contiguous float32 ``(1, 1, X, Y, Z)`` voxels, with the spatial axes in
@@ -295,15 +295,16 @@ def run(
     weights_path: str | Path | None = None,
     output_dir: str | Path,
     overwrite: bool = False,
-    resample_raw_input: bool = False,
+    resample_raw_input: bool = True,
 ) -> RunResult:
     """Detect lung nodule candidates in one chest CT volume.
 
-    The default reorients to RAS and requires images already on the bundle's
-    (0.703125, 0.703125, 1.25) mm grid (each axis within 1e-3 mm, no shear),
-    rejecting others; the bundle's own ``Spacingd`` is disabled by default, and
-    so is resampling here. Set ``resample_raw_input=True`` for
-    original CT images, mirroring the bundle's ``whether_raw_luna16=true`` mode.
+    The default reorients to RAS and resamples to the bundle's
+    (0.703125, 0.703125, 1.25) mm grid, mirroring the bundle's
+    ``whether_raw_luna16=true`` mode, so ordinary CT works as is. Pass
+    ``resample_raw_input=False`` for images already on that grid (each axis
+    within 1e-3 mm, no shear), as the bundle's own default mode (``Spacingd``
+    disabled) expects; it rejects any other image.
     Spacing uses trilinear interpolation, border padding, align_corners=False,
     float64 computation and float32 output; rotation is retained and shear
     removed. Both modes map decoded boxes with the prepared affine and MONAI's
@@ -329,8 +330,8 @@ def run(
             Outputs may not alias each other or the input or weights. New outputs
             replace earlier ones only after the whole run succeeds. Alias detection is
             a preflight check, not protection against concurrent path changes.
-        resample_raw_input: Resample original CT images to the bundle grid. False
-            requires inputs already on that grid and rejects others.
+        resample_raw_input: Resample the CT to the bundle grid (default ``True``).
+            ``False`` requires inputs already on that grid and rejects others.
 
     Returns:
         ``outputs`` maps ``detections`` to ``detections.json``, a
@@ -343,8 +344,8 @@ def run(
 
     Raises:
         InvalidInputError: The input is missing, not a finite scalar 3D image
-            with mm, meter or micron units, off the bundle grid without
-            ``resample_raw_input``, ``overwrite`` or ``resample_raw_input``
+            with mm, meter or micron units, off the bundle grid with
+            ``resample_raw_input=False``, ``overwrite`` or ``resample_raw_input``
             is not a bool, ``output_dir`` is not a directory, outputs exist and
             ``overwrite`` is false, or an output aliases an input or another output.
             All but the image contents are checked before weights are downloaded.

@@ -38,7 +38,7 @@ uv pip install "lung-nodule-mlx>=0.2.7"
 ```python
 from lung_nodule_mlx.medmlx import run
 
-result = run(image_path="ct.nii.gz", output_dir="out", resample_raw_input=True)
+result = run(image_path="ct.nii.gz", output_dir="out")
 print(result["outputs"]["detections"])
 ```
 
@@ -54,14 +54,12 @@ downloads them ahead of time. For local weights, pass a folder containing
 | `output_dir` | Directory for `detections.json` and `bundle_detections.json`; created if missing |
 | `weights_path` | Optional folder containing `network.safetensors`, or the file itself |
 | `overwrite` | `False` by default; existing outputs are never replaced |
-| `resample_raw_input` | `False` requires the bundle's 0.703125 × 0.703125 × 1.25 mm grid; `True` resamples first |
-
-Keep `resample_raw_input=True` for ordinary CT.
+| `resample_raw_input` | `True` by default: resamples to the bundle's 0.703125 × 0.703125 × 1.25 mm grid first, so ordinary CT works. `False` requires input already on that grid |
 
 | `resample_raw_input` | Preprocessing |
 | :--- | :--- |
-| `True` | Resamples to the bundle grid first |
-| `False` (default) | The bundle's pre-resampled mode: reorients to RAS and scales intensities without resampling. Rejects images whose voxel axes are more than 1e-3 mm from the bundle grid or sheared, the cases where the bundle's resampling would change the image |
+| `True` (default) | Resamples to the bundle grid first |
+| `False` | The bundle's pre-resampled mode: reorients to RAS and scales intensities without resampling. Rejects images whose voxel axes are more than 1e-3 mm from the bundle grid or sheared, the cases where the bundle's resampling would change the image |
 
 Spatial units are converted to millimetres; unspecified units are taken as millimetres,
 as the bundle's MONAI readers do. DICOM series are not read.
@@ -86,7 +84,7 @@ from medmlx_core.runtime import import_mlx
 from lung_nodule_mlx import RetinaNet, boxes_to_world, detections, predict_maps
 from lung_nodule_mlx.medmlx import prepare_image
 
-image, affine = prepare_image(Path("ct.nii.gz"), resample_raw_input=True)
+image, affine = prepare_image(Path("ct.nii.gz"))
 mx = import_mlx()
 network = RetinaNet(mx.load("network.safetensors"), mx=mx)
 maps, padded_shape = predict_maps(image, network)

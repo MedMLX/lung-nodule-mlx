@@ -156,7 +156,6 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
         image_path=str(write_volume(tmp_path)),
         weights_path=str(weights),
         output_dir=str(tmp_path / "out"),
-        resample_raw_input=True,
     )
     rows = json.loads(Path(result["outputs"]["bundle_detections"]).read_text())
     exact(np.asarray(rows[0]["label"], dtype=np.int64), expected["labels"], "runner labels")

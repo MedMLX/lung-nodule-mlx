@@ -81,7 +81,7 @@ def require_bundle_grid(shape: tuple[int, ...], affine: NDArray[np.float64]) -> 
     """Reject an image unless the bundle's ``Spacingd`` would leave it unchanged.
 
     This is the pre-resampled contract: every axis within MONAI's ``AFFINE_TOL``
-    (1e-3 mm) of the bundle spacing and no shear, so the default path sees the
+    (1e-3 mm) of the bundle spacing and no shear, so the unresampled path sees the
     same voxels and affine as ``resample_raw_input=True``. Rotation is allowed,
     as ``Spacingd`` keeps it.
 
@@ -95,7 +95,7 @@ def require_bundle_grid(shape: tuple[int, ...], affine: NDArray[np.float64]) -> 
         raise InvalidInputError(
             f"Lung MLX expects the bundle's 0.703125 x 0.703125 x 1.25 mm grid "
             f"(within 1e-3 mm per axis, no shear); this image has ({spacing}) mm "
-            "voxel axes. Pass resample_raw_input=True to resample it."
+            "voxel axes. Use resample_raw_input=True to resample it."
         )
 
 

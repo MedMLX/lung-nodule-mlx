@@ -32,19 +32,19 @@ def test_spacing_matches_monai(case: str) -> None:
     np.testing.assert_allclose(affine, SAVED[f"affine::{case}"], rtol=0, atol=1e-12)
 
 
-# MONAI Spacingd leaves these unchanged, so the unresampled default must accept them.
+# MONAI Spacingd leaves these unchanged, so the unresampled mode must accept them.
 ON_GRID = {"target", "near_target"}
 
 
-@pytest.mark.parametrize("resample", [True, False], ids=["resampled", "default"])
+@pytest.mark.parametrize("resample", [True, False], ids=["resampled", "unresampled"])
 @pytest.mark.parametrize("case", CASES)
 def test_prepare_image_matches_monai(tmp_path: Path, case: str, resample: bool) -> None:
-    """Compare prepared CT voxels and affine with MONAI; default rejects off-grid input."""
+    """Compare prepared CT voxels and affine with MONAI; unresampled mode rejects off-grid input."""
     path = tmp_path / f"{case}.nii"
     write_mm_fixture(path, SAVED[f"nifti::{case}"].tobytes())
     if not resample and case not in ON_GRID:
         with pytest.raises(InvalidInputError, match="resample_raw_input=True"):
-            medmlx.prepare_image(path)
+            medmlx.prepare_image(path, resample_raw_input=False)
         return
     actual, affine = medmlx.prepare_image(path, resample_raw_input=resample)
     assert actual.dtype == np.float32 and actual.flags.c_contiguous
@@ -55,10 +55,10 @@ def test_prepare_image_matches_monai(tmp_path: Path, case: str, resample: bool) 
 
 @pytest.mark.parametrize("case", sorted(ON_GRID))
 def test_unspecified_units_are_millimetres_as_in_monai(tmp_path: Path, case: str) -> None:
-    """MONAI's SaveImage writes unknown units; MONAI reads them as mm, so must the default."""
+    """MONAI reads unknown units as mm; the unresampled path must too."""
     path = tmp_path / f"{case}.nii"
     write_mm_fixture(path, SAVED[f"nifti::{case}"].tobytes(), units="unknown")
-    actual, affine = medmlx.prepare_image(path)
+    actual, affine = medmlx.prepare_image(path, resample_raw_input=False)
     np.testing.assert_allclose(actual, SAVED[f"prepared::{case}"], rtol=0, atol=1.2e-7)
     np.testing.assert_allclose(affine, SAVED[f"affine::{case}"], rtol=0, atol=1e-12)
 
