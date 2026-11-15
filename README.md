@@ -36,9 +36,9 @@ uv pip install "lung-nodule-mlx>=0.2.7"
 ## Run
 
 ```python
-from lung_nodule_mlx import detect
+from lung_nodule_mlx import run
 
-result = detect(image_path="ct.nii.gz", output_dir="out")
+result = run(image_path="ct.nii.gz", output_dir="out")
 print(result["outputs"]["detections"])
 ```
 

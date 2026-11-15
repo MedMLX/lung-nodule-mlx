@@ -34,7 +34,7 @@ MODEL = {
     "id": "lung-nodule",
     "label": "Lung nodule CT detection",
     "task": "detection",
-    "run": "lung_nodule_mlx.medmlx:detect",
+    "run": "lung_nodule_mlx.medmlx:run",
     # Measured MLX peak (5.93 GB) for a 512x512x281 chest CT resampled to the model grid;
     # larger inputs need more.
     "peak_memory_gb": 6.0,
@@ -238,7 +238,7 @@ def load_weights(path: Path, mx: ArrayRuntime) -> dict[str, array]:
     return weights
 
 
-def detect(
+def run(
     *,
     image_path: PathLike,
     weights_path: PathLike | None = None,

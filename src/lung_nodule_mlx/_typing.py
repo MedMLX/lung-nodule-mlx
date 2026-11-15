@@ -137,11 +137,11 @@ class RunDetails(TypedDict):
 
 
 class RunOutputs(TypedDict):
-    """Absolute POSIX paths of the files ``detect`` writes."""
+    """Absolute POSIX paths of the files ``run`` writes."""
 
     detections: str
     bundle_detections: str
 
 
-# Return value of ``lung_nodule_mlx.detect``: detection files by role, with artifacts.
+# Return value of ``lung_nodule_mlx.run``: detection files by role, with artifacts.
 type RunResult = _RunResult[RunDetails, RunOutputs]

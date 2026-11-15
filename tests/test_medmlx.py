@@ -58,7 +58,7 @@ def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path) -> None
     source = write_volume(tmp_path)
     output = tmp_path / "out"
     output.mkdir()
-    result = medmlx.detect(
+    result = medmlx.run(
         image_path=str(source),
         weights_path=str(weights_file.parent),
         output_dir=str(output),
@@ -126,7 +126,7 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
     monkeypatch.setattr(medmlx, "load_weights", no_weights)
     monkeypatch.setattr(mlx_model, "RetinaNet", no_network)
     monkeypatch.setattr(mlx_detector, "predict_maps", predict)
-    result = medmlx.detect(
+    result = medmlx.run(
         image_path=str(write_volume(tmp_path)),
         weights_path=str(tmp_path),
         output_dir=str(tmp_path / "out"),
@@ -168,7 +168,7 @@ def test_run_rejects_bad_arguments_before_downloading_weights(
         output.mkdir()
         (output / "detections.json").symlink_to(tmp_path / "absent.json")
     with pytest.raises(InvalidInputError):
-        medmlx.detect(image_path=image, output_dir=output, resample_raw_input=resample)
+        medmlx.run(image_path=image, output_dir=output, resample_raw_input=resample)
     if problem == "dangling_output":
         assert (output / "detections.json").is_symlink()
 
@@ -191,7 +191,7 @@ def test_run_rejects_missing_and_mismatched_weights(
     source = write_volume(tmp_path)
     for folder in folders.values():
         with pytest.raises(AssetNotReadyError):
-            medmlx.detect(
+            medmlx.run(
                 image_path=source,
                 weights_path=folder,
                 output_dir=tmp_path / "out",
