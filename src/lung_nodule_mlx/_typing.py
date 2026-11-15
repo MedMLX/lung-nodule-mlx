@@ -12,7 +12,7 @@ from medmlx_core.typing import MlxRuntime
 from numpy.typing import ArrayLike, NDArray
 
 if TYPE_CHECKING:
-    from mlx.core import array
+    from mlx.core import Dtype, array
 
 type HostArray = NDArray[np.generic]
 type NativeTree = array | Sequence[NativeTree] | Mapping[str, NativeTree]
@@ -37,6 +37,10 @@ class ArrayRuntime(MlxRuntime, Protocol):
 
     def square(self, values: array, /) -> array:
         """Return elementwise squares of an MLX array."""
+        ...
+
+    def full(self, shape: Sequence[int], vals: float, dtype: Dtype | None = None) -> array:
+        """Return an array of the given shape filled with ``vals``."""
         ...
 
     def eval(self, *values: NativeTree) -> None:
