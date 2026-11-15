@@ -23,7 +23,7 @@ Detect lung nodule candidates in 3D chest CT with MONAI RetinaNet and native MLX
 
 | Model | Weights download | Peak MLX memory | Measured on |
 | :--- | ---: | ---: | :--- |
-| `lung-nodule` | 85 MB | 10.7 GB | 512×512×147 chest CT resampled to the model grid |
+| `lung-nodule` | 85 MB | 5.9 GB | 512×512×281 chest CT resampled to the model grid |
 
 ## Install
 
