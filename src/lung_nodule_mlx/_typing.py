@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypedDict
 
 import numpy as np
-from medmlx_core.outputs import Artifact
+from medmlx_core.outputs import RunResult as _RunResult
 from medmlx_core.typing import MlxRuntime
 from numpy.typing import ArrayLike, NDArray
 
@@ -133,13 +133,11 @@ class RunDetails(TypedDict):
 
 
 class RunOutputs(TypedDict):
-    """Absolute POSIX paths of the files ``run`` writes."""
+    """Absolute POSIX paths of the files ``detect`` writes."""
 
     detections: str
     bundle_detections: str
 
 
-class RunResult(TypedDict):
-    outputs: RunOutputs
-    artifacts: dict[str, Artifact]
-    details: RunDetails
+# Return value of ``lung_nodule_mlx.detect``: detection files by role, with artifacts.
+type RunResult = _RunResult[RunDetails, RunOutputs]
