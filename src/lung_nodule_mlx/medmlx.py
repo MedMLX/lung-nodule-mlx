@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -53,6 +54,8 @@ _WEIGHTS_HINT = (
 
 
 _UNITS_ERROR = "Lung NIfTI spatial units must be mm, meter, micron or unspecified"
+# Overlapping runs must not interleave changes to MLX's process-wide allocator settings.
+_MLX_RUN_LOCK = Lock()
 
 
 def prepare_image(
@@ -330,12 +333,21 @@ def run(
     # Host preparation precedes asset loading so input errors surface before MLX work.
     image, affine = prepare_image(source, resample_raw_input=resample_raw_input)
     mx = cast(ArrayRuntime, import_mlx())
-    mx.set_cache_limit(512 * 1024**2)
-    mx.reset_peak_memory()
-    weights = load_weights(weights_file, mx)
-    mx.eval(weights)
-    network = RetinaNet(weights, mx=mx)
-    maps, shape = predict_maps(image, network)
+    with _MLX_RUN_LOCK:
+        cache_limit = 512 * 1024**2
+        previous_cache_limit = mx.set_cache_limit(cache_limit)
+        try:
+            if previous_cache_limit < cache_limit:
+                # Keep a caller's stricter limit instead of raising it for the run.
+                mx.set_cache_limit(previous_cache_limit)
+            mx.reset_peak_memory()
+            weights = load_weights(weights_file, mx)
+            mx.eval(weights)
+            network = RetinaNet(weights, mx=mx)
+            maps, shape = predict_maps(image, network)
+            peak_memory_bytes = mx.get_peak_memory()
+        finally:
+            mx.set_cache_limit(previous_cache_limit)
     if any(not np.isfinite(a).all() for values in maps.values() for a in values):
         raise ModelExecutionError("Non-finite lung detector head maps")
     boxes, scores, _ = detections(maps, shape, image.shape[2:])
@@ -374,6 +386,6 @@ def run(
             "padded_shape": list(shape),
             "dtype": "float32",
             "device": str(mx.default_device()),
-            "peak_memory_bytes": mx.get_peak_memory(),
+            "peak_memory_bytes": peak_memory_bytes,
         },
     }

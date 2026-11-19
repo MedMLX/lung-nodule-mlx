@@ -27,6 +27,7 @@ WEIGHT_SEED = 20261007
 REAL_REFERENCES = FIXTURES.parent.parent.parent / "work/real-reference"
 INPUTS = load(REAL_REFERENCES / "runner_inputs.npz")
 LPS_TO_RAS = np.array([-1, -1, 1, 1, 1, 1])
+CALLER_CACHE_LIMIT = 768 * 1024**2
 
 
 def write_volume(directory: Path, case: str = "oblique") -> Path:
@@ -53,17 +54,22 @@ def weights_file(tmp_path_factory: pytest.TempPathFactory, mx: ArrayRuntime) -> 
 
 
 @pytest.mark.mlx
-def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path) -> None:
-    """Compare seeded runner outputs with recorded upstream detections."""
+def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, mx: ArrayRuntime) -> None:
+    """Match upstream detections and preserve the caller's allocator cache limit."""
     source = write_volume(tmp_path)
     output = tmp_path / "out"
     output.mkdir()
-    result = medmlx.run(
-        image_path=str(source),
-        weights_path=str(weights_file.parent),
-        output_dir=str(output),
-        resample_raw_input=True,
-    )
+    original_limit = mx.set_cache_limit(CALLER_CACHE_LIMIT)
+    try:
+        result = medmlx.run(
+            image_path=str(source),
+            weights_path=str(weights_file.parent),
+            output_dir=str(output),
+            resample_raw_input=True,
+        )
+    finally:
+        limit_after_run = mx.set_cache_limit(original_limit)
+    assert limit_after_run == CALLER_CACHE_LIMIT
     bundle_file = Path(result["outputs"]["bundle_detections"])
     _, artifacts = validate_outputs(cast("dict[str, object]", result))
     assert {role: (item["kind"], item["coordinate_space"]) for role, item in artifacts.items()} == {
@@ -177,7 +183,7 @@ def test_run_rejects_bad_arguments_before_downloading_weights(
 def test_run_rejects_missing_and_mismatched_weights(
     tmp_path: Path, weights_file: Path, mx: ArrayRuntime
 ) -> None:
-    """Reject missing, unreadable, incomplete and unconverted-layout checkpoints."""
+    """Reject invalid checkpoints while preserving the caller's allocator cache limit."""
     weights = mx.load(str(weights_file), format="safetensors")
     name = "feature_extractor.body.conv1.weight"
     folders = {label: tmp_path / label for label in ("absent", "broken", "partial", "oidhw")}
@@ -190,11 +196,16 @@ def test_run_rejects_missing_and_mismatched_weights(
     mx.save_safetensors(str(folders["oidhw"] / "network.safetensors"), oidhw)
     source = write_volume(tmp_path)
     for folder in folders.values():
-        with pytest.raises(AssetNotReadyError):
-            medmlx.run(
-                image_path=source,
-                weights_path=folder,
-                output_dir=tmp_path / "out",
-                resample_raw_input=True,
-            )
+        original_limit = mx.set_cache_limit(CALLER_CACHE_LIMIT)
+        try:
+            with pytest.raises(AssetNotReadyError):
+                medmlx.run(
+                    image_path=source,
+                    weights_path=folder,
+                    output_dir=tmp_path / "out",
+                    resample_raw_input=True,
+                )
+        finally:
+            limit_after_run = mx.set_cache_limit(original_limit)
+        assert limit_after_run == CALLER_CACHE_LIMIT, folder.name
     assert not (tmp_path / "out").exists()
