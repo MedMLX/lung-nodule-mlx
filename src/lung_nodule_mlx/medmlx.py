@@ -89,15 +89,23 @@ def prepare_image(
             or, without resampling, it is off the bundle grid.
     """
 
+    import zlib
+
     import nibabel as nib
     from nibabel.filebasedimages import ImageFileError
+    from nibabel.nifti1 import Nifti1Pair
 
     if not isinstance(cast(object, resample_raw_input), bool):
         raise InvalidInputError("resample_raw_input must be a boolean")
     try:
         image = cast(NiftiIo, nib).load(str(path))
-    except (ImageFileError, OSError) as error:
+    except (ImageFileError, OSError, zlib.error) as error:
+        # zlib.error: a damaged .nii.gz whose first compressed block holds the header.
         raise InvalidInputError(f"Lung MLX requires a readable NIfTI image: {path}") from error
+    if not isinstance(cast(object, image), Nifti1Pair):
+        # nibabel also loads MGH, Analyze and other formats, whose headers carry no
+        # NIfTI spatial units.
+        raise InvalidInputError(f"Lung MLX requires a NIfTI image: {path}")
     if len(image.shape) != 3 or any(n <= 0 for n in image.shape):
         raise InvalidInputError("Lung MLX requires a scalar 3D NIfTI image")
     input_affine = np.asarray(image.affine, dtype=np.float64)
@@ -105,8 +113,13 @@ def prepare_image(
         raise InvalidInputError("Lung MLX requires finite image data and affine")
     if np.linalg.matrix_rank(input_affine[:3, :3]) < 3:
         raise InvalidInputError("Lung MLX requires an invertible image affine")
-    image = cast(NiftiIo, nib).as_closest_canonical(image)
-    raw = np.asanyarray(image.dataobj)
+    try:
+        image = cast(NiftiIo, nib).as_closest_canonical(image)
+        raw = np.asanyarray(image.dataobj)
+    except (EOFError, OSError, zlib.error) as error:
+        # A truncated or damaged .nii.gz parses its header and fails only when the
+        # voxels are decompressed (EOFError, gzip.BadGzipFile or zlib.error).
+        raise InvalidInputError(f"Lung MLX requires a readable NIfTI image: {path}") from error
     if np.iscomplexobj(raw):
         raise InvalidInputError("Lung MLX requires real-valued CT voxels")
     with np.errstate(over="ignore", invalid="ignore"):

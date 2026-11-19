@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
 from pathlib import Path
+from typing import Protocol, cast
 
+import nibabel as nib
 import numpy as np
 import pytest
 from _nifti_inputs import write_mm_fixture
@@ -17,6 +20,12 @@ with np.load(
 ) as recording:
     SAVED = dict(recording)
 CASES = [str(name) for name in SAVED["cases"]]
+
+
+class _ImageWriter(Protocol):
+    """The part of ``nibabel.save`` used here, with a complete signature."""
+
+    def save(self, img: object, filename: Path) -> None: ...
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -51,6 +60,22 @@ def test_prepare_image_matches_monai(tmp_path: Path, case: str, resample: bool) 
     assert actual.shape == SAVED[f"prepared::{case}"].shape
     np.testing.assert_allclose(actual, SAVED[f"prepared::{case}"], rtol=0, atol=1.2e-7)
     np.testing.assert_allclose(affine, SAVED[f"affine::{case}"], rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("problem", ["truncated", "mgh"])
+def test_prepare_image_rejects_damaged_and_non_nifti_files(tmp_path: Path, problem: str) -> None:
+    """A cut-off .nii.gz and a valid MGH volume are input errors, not decoder errors."""
+    if problem == "truncated":
+        path = tmp_path / "ct.nii.gz"
+        packed = gzip.compress(SAVED[f"nifti::{CASES[0]}"].tobytes())
+        # The header still parses; the voxels end early.
+        path.write_bytes(packed[: len(packed) // 2])
+    else:
+        path = tmp_path / "ct.mgz"
+        volume = nib.MGHImage(SAVED[f"oriented::{CASES[0]}"], SAVED[f"source_affine::{CASES[0]}"])
+        cast(_ImageWriter, nib).save(volume, path)
+    with pytest.raises(InvalidInputError, match="NIfTI image"):
+        medmlx.prepare_image(path)
 
 
 @pytest.mark.parametrize("case", sorted(ON_GRID))
