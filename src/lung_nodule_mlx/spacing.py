@@ -7,6 +7,7 @@ is implemented. Computation is float64 and the returned voxels are float32.
 
 from __future__ import annotations
 
+import itertools
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from numpy.typing import NDArray
 
 BUNDLE_SPACING = (0.703125, 0.703125, 1.25)
 _AFFINE_TOL = 1e-3  # monai.data.utils.AFFINE_TOL
-# Bounds the float64 coordinates and gathered corners of all chunks in flight.
+# Target voxel budget across the interpolation chunks in flight.
 _CHUNK_VOXELS = 1 << 18
 _THREADS = min(8, os.cpu_count() or 1)
 
@@ -124,16 +125,75 @@ def _trilinear(
     return result.astype(np.float32)
 
 
+def _axis_corners(
+    scale: float, shift: float, count: int, size: int
+) -> tuple[tuple[NDArray[np.int64], NDArray[np.int64]], tuple[NDArray[np.float64], ...]]:
+    """``_trilinear``'s indices and weights along one axis of an axis-aligned pull.
+
+    With zero off-diagonal pull entries each source coordinate is
+    ``scale * index + shift``, the value the 3x3 product gives when its other
+    terms are exact zeros. Returns the lower and upper indices and their weights
+    ``(1 - fraction, fraction)``.
+    """
+    coordinates = np.clip(scale * np.arange(count, dtype=np.float64) + shift, 0.0, size - 1.0)
+    lower = np.floor(coordinates).astype(np.int64)
+    fraction = coordinates - lower
+    return (lower, np.minimum(lower + 1, size - 1)), (1.0 - fraction, fraction)
+
+
+def _resample_axis_aligned(
+    data: NDArray[np.float32], grid: SpacingGrid, result: NDArray[np.float32]
+) -> None:
+    """Fill ``result`` as the chunked ``_trilinear`` path does, for a diagonal pull.
+
+    Coordinates, indices and weights are separable, so they are built once per
+    axis, and each corner's ``(w_k * w_j)`` plane is shared by every output plane.
+    Each voxel keeps ``_trilinear``'s corner order, weight product
+    ``(w_k * w_j) * w_i`` and float64 sum, so the result is bitwise identical.
+    Output planes along the first axis run on ``_THREADS`` threads, in blocks of
+    whole rows of about ``_CHUNK_VOXELS // _THREADS`` voxels.
+    """
+    pull = grid.pull
+    (index_i, weight_i), (index_j, weight_j), (index_k, weight_k) = (
+        _axis_corners(float(pull[a, a]), float(pull[a, 3]), grid.shape[a], data.shape[a])
+        for a in range(3)
+    )
+    planes: dict[tuple[int, int], NDArray[np.float64]] = {
+        (j, k): weight_k[k][None, :] * weight_j[j][:, None] for j in (0, 1) for k in (0, 1)
+    }
+    rows = max(1, _CHUNK_VOXELS // _THREADS // grid.shape[2])
+
+    def fill(plane: int) -> None:
+        sources = [data[int(index_i[side][plane])] for side in (0, 1)]
+        for top in range(0, grid.shape[1], rows):
+            bottom = min(grid.shape[1], top + rows)
+            lines: dict[tuple[int, int], NDArray[np.float32]] = {
+                (i, j): sources[i][index_j[j][top:bottom]] for i in (0, 1) for j in (0, 1)
+            }
+            block: NDArray[np.float64] = np.zeros((bottom - top, grid.shape[2]), np.float64)
+            # ATen's (tnw, tne, tsw, tse, bnw, bne, bsw, bse) order, as in _trilinear.
+            for i, j, k in itertools.product((0, 1), repeat=3):
+                weight = planes[j, k][top:bottom] * weight_i[i][plane]
+                block += lines[i, j][:, index_k[k]].astype(np.float64) * weight
+            result[plane, top:bottom] = block.astype(np.float32)
+
+    with ThreadPoolExecutor(max_workers=_THREADS) as pool:
+        tasks = [pool.submit(fill, plane) for plane in range(grid.shape[0])]
+        for task in tasks:
+            task.result()
+
+
 def resample_image(
     data: NDArray[np.float32],
     affine: NDArray[np.float64],
 ) -> tuple[NDArray[np.float32], NDArray[np.float64]]:
     """Resample scalar 3D HU voxels to the bundle grid, before intensity scaling.
 
-    Coordinates are voxel centers: source = solve(input_affine, output_affine)
-    @ output_index. This is MONAI's normalized affine_grid/grid_sample mapping
-    with align_corners=False; out-of-bounds centers use border values. Temporary
-    float64 coordinates and gathered corners are bounded by chunk size.
+    The pull maps output voxel centers into source voxel coordinates, as in
+    MONAI's normalized affine_grid/grid_sample mapping with align_corners=False.
+    Out-of-bounds centers use border values. Diagonal pulls reuse per-axis
+    coordinates and four weight planes, gathering corners in row blocks. The
+    general path computes coordinates and gathers corners in flattened chunks.
 
     Args:
         data: Finite float32 3D HU voxels, indexed by the affine's voxel axes.
@@ -160,6 +220,11 @@ def resample_image(
     if np.array_equal(grid.pull, np.eye(4)):
         return np.ascontiguousarray(data), grid.affine
     result = np.empty(grid.shape, dtype=np.float32)
+    linear = grid.pull[:3, :3]
+    if not np.count_nonzero(linear - np.diag(np.diag(linear))):
+        # Axis-aligned grids (ordinary CT): same arithmetic per voxel, separable work.
+        _resample_axis_aligned(data, grid, result)
+        return result, grid.affine
     flat = result.reshape(-1)
     # _THREADS chunks run at once (NumPy releases the GIL), each a fraction of
     # _CHUNK_VOXELS, so their float64 temporaries together stay within one serial
