@@ -14,7 +14,6 @@ from numpy.typing import ArrayLike, NDArray
 if TYPE_CHECKING:
     from mlx.core import Dtype, array
 
-type HostArray = NDArray[np.generic]
 type NativeTree = array | Sequence[NativeTree] | Mapping[str, NativeTree]
 type FloatArray = NDArray[np.float32]
 type DoubleArray = NDArray[np.float64]
