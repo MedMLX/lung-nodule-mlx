@@ -13,8 +13,9 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 from medmlx_core.layout import to_ncdhw, to_ndhwc
+from medmlx_core.typing import MlxRuntime
 
-from lung_nodule_mlx._typing import ArrayRuntime, FloatArray, Maps
+from lung_nodule_mlx._typing import FloatArray, Maps
 
 if TYPE_CHECKING:
     from mlx.core import array
@@ -82,7 +83,7 @@ class RetinaNet:
         self,
         weights: dict[str, array],
         *,
-        mx: ArrayRuntime,
+        mx: MlxRuntime,
         conv_output_policy: Literal["bounded", "concatenate"] = "bounded",
     ) -> None:
         """Bind weights and choose bounded slab storage or faster concatenation.

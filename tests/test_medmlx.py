@@ -14,14 +14,10 @@ from _nifti_inputs import write_mm_fixture
 from _references import FIXTURES, exact, load, runner_atol
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError
 from medmlx_core.outputs import validate_outputs
+from medmlx_core.typing import MlxRuntime
 
 from lung_nodule_mlx import medmlx, required_shapes
-from lung_nodule_mlx._typing import (
-    ArrayRuntime,
-    FloatArray,
-    Maps,
-    RealArray,
-)
+from lung_nodule_mlx._typing import FloatArray, Maps, RealArray
 
 WEIGHT_SEED = 20261007
 REAL_REFERENCES = FIXTURES.parent.parent.parent / "work/real-reference"
@@ -38,15 +34,15 @@ def write_volume(directory: Path, case: str = "oblique") -> Path:
 
 
 @pytest.fixture(scope="module")
-def mx() -> ArrayRuntime:
+def mx() -> MlxRuntime:
     """Load the Metal runtime for seeded inference tests."""
     from medmlx_core.runtime import import_mlx
 
-    return cast(ArrayRuntime, import_mlx())
+    return cast(MlxRuntime, import_mlx())
 
 
 @pytest.fixture(scope="module")
-def weights_file(tmp_path_factory: pytest.TempPathFactory, mx: ArrayRuntime) -> Path:
+def weights_file(tmp_path_factory: pytest.TempPathFactory, mx: MlxRuntime) -> Path:
     """Seeded full-graph weights in the converted safetensors format the runner loads."""
     path = tmp_path_factory.mktemp("weights") / "network.safetensors"
     mx.save_safetensors(str(path), seeded_weights(required_shapes(), WEIGHT_SEED, mx))
@@ -54,7 +50,7 @@ def weights_file(tmp_path_factory: pytest.TempPathFactory, mx: ArrayRuntime) -> 
 
 
 @pytest.mark.mlx
-def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, mx: ArrayRuntime) -> None:
+def test_run_matches_upstream_runner(tmp_path: Path, weights_file: Path, mx: MlxRuntime) -> None:
     """Match upstream detections and preserve the caller's allocator cache limit."""
     source = write_volume(tmp_path)
     output = tmp_path / "out"
@@ -112,10 +108,10 @@ def test_runner_maps_prepared_grid_to_upstream_world_boxes(
     weights = tmp_path / "network.safetensors"
     weights.write_bytes(b"recorded head maps replace network execution")
 
-    def no_weights(path: Path, mx: ArrayRuntime) -> dict[str, object]:
+    def no_weights(path: Path) -> dict[str, object]:
         return {}
 
-    def no_network(weights: dict[str, object], *, mx: ArrayRuntime) -> None:
+    def no_network(weights: dict[str, object], *, mx: MlxRuntime) -> None:
         pass
 
     def predict(image: FloatArray, network: None) -> tuple[Maps, tuple[int, ...]]:
@@ -181,7 +177,7 @@ def test_run_rejects_bad_arguments_before_downloading_weights(
 
 @pytest.mark.mlx
 def test_run_rejects_missing_and_mismatched_weights(
-    tmp_path: Path, weights_file: Path, mx: ArrayRuntime
+    tmp_path: Path, weights_file: Path, mx: MlxRuntime
 ) -> None:
     """Reject invalid checkpoints while preserving the caller's allocator cache limit."""
     weights = mx.load(str(weights_file), format="safetensors")
