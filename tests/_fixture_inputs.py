@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-from lung_nodule_mlx._typing import ArrayRuntime
+from medmlx_core.typing import MlxRuntime
 
 if TYPE_CHECKING:
     from mlx.core import array
@@ -64,7 +64,7 @@ def seeded_state(shapes: Mapping[str, tuple[int, ...]], seed: int) -> SourceStat
 
 
 def seeded_weights(
-    shapes: Mapping[str, tuple[int, ...]], seed: int, mx: ArrayRuntime
+    shapes: Mapping[str, tuple[int, ...]], seed: int, mx: MlxRuntime
 ) -> dict[str, array]:
     """Build the fixed released graph without storing its 84 MB of weights."""
     weights: dict[str, array] = {}

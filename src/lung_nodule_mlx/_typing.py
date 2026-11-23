@@ -2,50 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypedDict
+from typing import NotRequired, Protocol, TypedDict
 
 import numpy as np
 from medmlx_core.outputs import RunResult as _RunResult
-from medmlx_core.typing import MlxRuntime
 from numpy.typing import ArrayLike, NDArray
 
-if TYPE_CHECKING:
-    from mlx.core import Dtype, array
-
-type HostArray = NDArray[np.generic]
-type NativeTree = array | Sequence[NativeTree] | Mapping[str, NativeTree]
 type FloatArray = NDArray[np.float32]
 type DoubleArray = NDArray[np.float64]
 type RealArray = NDArray[np.bool_ | np.integer | np.floating]
 type Maps = dict[str, list[FloatArray]]
-
-
-class ArrayRuntime(MlxRuntime, Protocol):
-    def load(self, file: str, /, format: Literal["safetensors"]) -> dict[str, array]:
-        """Load the named arrays in a safetensors checkpoint."""
-        ...
-
-    def save_safetensors(self, file: str, arrays: dict[str, array]) -> None:
-        """Write named arrays to a safetensors checkpoint."""
-        ...
-
-    def set_cache_limit(self, limit: int) -> int:
-        """Set the MLX allocator cache limit and return the previous limit."""
-        ...
-
-    def square(self, values: array, /) -> array:
-        """Return elementwise squares of an MLX array."""
-        ...
-
-    def full(self, shape: Sequence[int], vals: float, dtype: Dtype | None = None) -> array:
-        """Return an array of the given shape filled with ``vals``."""
-        ...
-
-    def eval(self, *values: NativeTree) -> None:
-        """Evaluate arrays in the supplied native tree."""
-        ...
 
 
 class NiftiHeader(Protocol):

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from _fixture_inputs import seeded_weights
 from _references import exact, reference
+from medmlx_core.typing import MlxRuntime
 
 from lung_nodule_mlx import (
     RetinaNet,
@@ -21,7 +22,7 @@ from lung_nodule_mlx import (
     required_shapes,
     select_boxes,
 )
-from lung_nodule_mlx._typing import ArrayRuntime, FloatArray, Maps, RealArray
+from lung_nodule_mlx._typing import FloatArray, Maps, RealArray
 
 
 @pytest.mark.mlx
@@ -29,7 +30,7 @@ def test_retinanet_matches_monai() -> None:
     """Compare seeded Metal RetinaNet head maps with the recorded MONAI graph."""
     from medmlx_core.runtime import import_mlx
 
-    mx = cast(ArrayRuntime, import_mlx())
+    mx = cast(MlxRuntime, import_mlx())
     saved = reference("retinanet")
     weights = seeded_weights(required_shapes(), int(saved["weight_seed"]), mx)
     actual = RetinaNet(weights, mx=mx)(cast(FloatArray, saved["image"]))
@@ -222,7 +223,7 @@ def test_multi_slab_convolution_preserves_outputs(stride: tuple[int, int, int]) 
     """Keep padding, striding and the short final slab equal under both storage policies."""
     from medmlx_core.runtime import import_mlx
 
-    mx = cast(ArrayRuntime, import_mlx())
+    mx = cast(MlxRuntime, import_mlx())
     rng = np.random.default_rng(563)
     values = mx.array(rng.normal(0, 1, (1, 67, 64, 48, 64)).astype(np.float32))
     weights = {

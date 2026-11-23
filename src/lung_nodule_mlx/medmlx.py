@@ -8,16 +8,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from medmlx_core.errors import AssetNotReadyError, InvalidInputError, ModelExecutionError
+from medmlx_core.errors import InvalidInputError, ModelExecutionError
 from medmlx_core.files import PathLike, input_file, output_targets, publish
 from medmlx_core.outputs import artifact
-from medmlx_core.weights import model_folder, weights_revision
+from medmlx_core.typing import MlxRuntime
+from medmlx_core.weights import load_tensors, weights_file, weights_revision
 
 from lung_nodule_mlx._typing import (
-    ArrayRuntime,
     BundleRow,
     Detection,
     DetectionRecord,
@@ -47,12 +48,11 @@ BUNDLE_ID = "lung_nodule_ct_detection"
 BUNDLE_VERSION = "0.6.10"
 CLASSES = {"0": "nodule"}
 _RAS_LPS_FLIP = (-1.0, -1.0, 1.0)
-_WEIGHTS_HINT = (
-    "Omit weights_path to download it, or pass a model folder containing network.safetensors."
-)
 
 
 _UNITS_ERROR = "Lung NIfTI spatial units must be mm, meter, micron or unspecified"
+# Overlapping runs must not interleave changes to MLX's process-wide allocator settings.
+_MLX_RUN_LOCK = Lock()
 
 
 def prepare_image(
@@ -86,15 +86,23 @@ def prepare_image(
             or, without resampling, it is off the bundle grid.
     """
 
+    import zlib
+
     import nibabel as nib
     from nibabel.filebasedimages import ImageFileError
+    from nibabel.nifti1 import Nifti1Pair
 
     if not isinstance(cast(object, resample_raw_input), bool):
         raise InvalidInputError("resample_raw_input must be a boolean")
     try:
         image = cast(NiftiIo, nib).load(str(path))
-    except (ImageFileError, OSError) as error:
+    except (ImageFileError, OSError, zlib.error) as error:
+        # zlib.error: a damaged .nii.gz whose first compressed block holds the header.
         raise InvalidInputError(f"Lung MLX requires a readable NIfTI image: {path}") from error
+    if not isinstance(cast(object, image), Nifti1Pair):
+        # nibabel also loads MGH, Analyze and other formats, whose headers carry no
+        # NIfTI spatial units.
+        raise InvalidInputError(f"Lung MLX requires a NIfTI image: {path}")
     if len(image.shape) != 3 or any(n <= 0 for n in image.shape):
         raise InvalidInputError("Lung MLX requires a scalar 3D NIfTI image")
     input_affine = np.asarray(image.affine, dtype=np.float64)
@@ -102,8 +110,13 @@ def prepare_image(
         raise InvalidInputError("Lung MLX requires finite image data and affine")
     if np.linalg.matrix_rank(input_affine[:3, :3]) < 3:
         raise InvalidInputError("Lung MLX requires an invertible image affine")
-    image = cast(NiftiIo, nib).as_closest_canonical(image)
-    raw = np.asanyarray(image.dataobj)
+    try:
+        image = cast(NiftiIo, nib).as_closest_canonical(image)
+        raw = np.asanyarray(image.dataobj)
+    except (EOFError, OSError, zlib.error) as error:
+        # A truncated or damaged .nii.gz parses its header and fails only when the
+        # voxels are decompressed (EOFError, gzip.BadGzipFile or zlib.error).
+        raise InvalidInputError(f"Lung MLX requires a readable NIfTI image: {path}") from error
     if np.iscomplexobj(raw):
         raise InvalidInputError("Lung MLX requires real-valued CT voxels")
     with np.errstate(over="ignore", invalid="ignore"):
@@ -191,51 +204,23 @@ def detection_record(rows: list[BundleRow], source_output: str) -> DetectionReco
     }
 
 
-def load_weights(path: Path, mx: ArrayRuntime) -> dict[str, array]:
+def load_weights(path: Path) -> dict[str, array]:
     """Load converted safetensors and require the released graph's FP32 ODHWI tensors.
 
     Raises:
         AssetNotReadyError: The file is unreadable, its tensor names differ from
             the released graph (batch-norm counters are not expected), or a tensor
-            has the wrong shape or is not float32.
+            has the wrong shape, is not float32 or is not finite.
     """
 
     from lung_nodule_mlx.mlx_model import required_shapes
 
-    try:
-        if path.suffix != ".safetensors":
-            raise ValueError("The native checkpoint must use the .safetensors suffix")
-        weights = mx.load(str(path), format="safetensors")
-    except (OSError, RuntimeError, ValueError) as error:
-        raise AssetNotReadyError(
-            f"Lung detector weights are not a readable safetensors file: {path}",
-            reason=f"unreadable {path}",
-            hint=_WEIGHTS_HINT,
-        ) from error
     expected = {
         name: shape if len(shape) != 5 else (shape[0], *shape[2:], shape[1])
         for name, shape in required_shapes().items()
         if not name.endswith("num_batches_tracked")
     }
-    missing = sorted(expected.keys() - weights.keys())
-    unexpected = sorted(weights.keys() - expected.keys())
-    if missing or unexpected:
-        raise AssetNotReadyError(
-            f"Lung detector weights do not match bundle {BUNDLE_VERSION}: "
-            f"missing {missing[:3]}, unexpected {unexpected[:3]}",
-            reason=f"mismatched {path}",
-            hint=_WEIGHTS_HINT,
-        )
-    for name, shape in expected.items():
-        value = weights[name]
-        if tuple(value.shape) != shape or value.dtype != mx.float32:
-            raise AssetNotReadyError(
-                f"Lung detector tensor {name} must be float32 {shape}, "
-                f"got {value.dtype} {tuple(value.shape)}",
-                reason=f"mismatched {path}",
-                hint=_WEIGHTS_HINT,
-            )
-    return weights
+    return load_tensors(path, model_id="lung-nodule", label="Lung detector", shapes=expected)
 
 
 def run(
@@ -313,13 +298,7 @@ def run(
         overwrite=overwrite, inputs=[source],
     )
     detections_file, bundle_file = targets["detections"], targets["bundle_detections"]
-    weights_file = model_folder("lung-nodule", weights_path) / "network.safetensors"
-    if not weights_file.is_file():
-        raise AssetNotReadyError(
-            f"Missing lung detector asset: {weights_file}",
-            reason=f"missing {weights_file}",
-            hint=_WEIGHTS_HINT,
-        )
+    network_file = weights_file("lung-nodule", weights_path, "network.safetensors")
 
     from medmlx_core.runtime import import_mlx
 
@@ -329,13 +308,22 @@ def run(
 
     # Host preparation precedes asset loading so input errors surface before MLX work.
     image, affine = prepare_image(source, resample_raw_input=resample_raw_input)
-    mx = cast(ArrayRuntime, import_mlx())
-    mx.set_cache_limit(512 * 1024**2)
-    mx.reset_peak_memory()
-    weights = load_weights(weights_file, mx)
-    mx.eval(weights)
-    network = RetinaNet(weights, mx=mx)
-    maps, shape = predict_maps(image, network)
+    mx = cast(MlxRuntime, import_mlx())
+    with _MLX_RUN_LOCK:
+        cache_limit = 512 * 1024**2
+        previous_cache_limit = mx.set_cache_limit(cache_limit)
+        try:
+            if previous_cache_limit < cache_limit:
+                # Keep a caller's stricter limit instead of raising it for the run.
+                mx.set_cache_limit(previous_cache_limit)
+            mx.reset_peak_memory()
+            weights = load_weights(network_file)
+            mx.eval(weights)
+            network = RetinaNet(weights, mx=mx)
+            maps, shape = predict_maps(image, network)
+            peak_memory_bytes = mx.get_peak_memory()
+        finally:
+            mx.set_cache_limit(previous_cache_limit)
     if any(not np.isfinite(a).all() for values in maps.values() for a in values):
         raise ModelExecutionError("Non-finite lung detector head maps")
     boxes, scores, _ = detections(maps, shape, image.shape[2:])
@@ -361,7 +349,7 @@ def run(
             "bundle_detections": artifact(kind="detection_set", coordinate_space="patient"),
         },
         "details": {
-            "weights_revision": weights_revision(weights_file.parent),
+            "weights_revision": weights_revision(network_file.parent),
             "detection_count": len(boxes),
             "max_score": float(scores.max()) if len(scores) else None,
             "coordinate_convention": "nifti_ras",
@@ -374,6 +362,6 @@ def run(
             "padded_shape": list(shape),
             "dtype": "float32",
             "device": str(mx.default_device()),
-            "peak_memory_bytes": mx.get_peak_memory(),
+            "peak_memory_bytes": peak_memory_bytes,
         },
     }

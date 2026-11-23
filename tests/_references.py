@@ -6,8 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-
-from lung_nodule_mlx._typing import HostArray
+from medmlx_core.typing import HostArray
 
 FIXTURES = Path(__file__).with_name("fixtures") / "darwin-arm64"
 
