@@ -61,12 +61,11 @@ downloads them ahead of time. For local weights, pass a folder containing
 | `True` (default) | Resamples to the bundle grid first |
 | `False` | The bundle's pre-resampled mode: reorients to RAS and scales intensities without resampling. Rejects images whose voxel axes are more than 1e-3 mm from the bundle grid or sheared, the cases where the bundle's resampling would change the image |
 
-Spatial units are converted to millimetres; unspecified units are taken as millimetres,
-as the bundle's MONAI readers do. DICOM series are not read.
+DICOM series are not read.
 
 | Output | Content |
 | :--- | :--- |
-| `detections.json` | `medmlx.detections.v1` candidate boxes (`cccwhd`, class 0 `nodule`) in RAS millimetres with their scores |
+| `detections.json` | `medmlx.detections.v1` candidate boxes (`cccwhd`, class 0 `nodule`) in RAS millimeters with their scores |
 | `bundle_detections.json` | The MONAI bundle rows in patient LPS |
 
 - Boxes map through the affine with MONAI's opposite-corner convention, so on oblique
@@ -98,7 +97,6 @@ world_ras = boxes_to_world(boxes, affine)
   boxes.
 - Box selection uses stable NumPy top-k and needs no compiler. Tied scores keep their
   original order, so overlapping boxes can differ from MONAI runs when scores tie.
-- Inference requires Apple Silicon with Metal.
 
 ## Use with MedMLX
 
