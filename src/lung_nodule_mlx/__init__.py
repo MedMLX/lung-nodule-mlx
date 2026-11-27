@@ -16,7 +16,7 @@ from lung_nodule_mlx.mlx_detector import (
 from lung_nodule_mlx.mlx_model import RetinaNet, required_shapes
 from lung_nodule_mlx.spacing import resample_image
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 __all__ = [
     "DIVISIBLE",
