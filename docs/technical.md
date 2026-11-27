@@ -16,6 +16,10 @@ difference 0.0), and peak MLX memory falls from 10.2 GB to 6.0 GB. Seeded-weight
 parity with the recorded MONAI references (`tests/test_equivalence.py`,
 `tests/test_medmlx.py`) passes at the existing tolerances.
 
+On MLX 0.32.5 the six head maps for that CT are bit-identical to MLX 0.32.4. The
+four detections are unchanged, peak MLX memory is 5.95 GB (5,945,145,436 bytes) on
+both versions, and the seeded parity suite passes at the same tolerances.
+
 The runner limits the MLX free cache to 512 MiB during inference, keeps a lower
 limit the caller already set, and restores the caller's limit when inference
 finishes or raises an error.
